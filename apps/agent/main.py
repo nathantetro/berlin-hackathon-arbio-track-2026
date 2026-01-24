@@ -58,7 +58,6 @@ def build_session_context(
     emails = get_emails_by_session(session_id)
 
     context_parts = [
-        f"Session ID: {session_id}",
         f"Reference Code: {session.get('reference_code', 'N/A')}",
         f"Status: {session.get('status', 'unknown')}",
         f"Total Emails: {len(emails)}",
@@ -85,8 +84,6 @@ def build_session_context(
             "Latest Email:",
             f"  From: {latest_email.get('from_address', 'unknown')}",
             f"  Subject: {latest_email.get('subject', 'No subject')}",
-            f"  Has Text: {'yes' if latest_email.get('body_text') else 'no'}",
-            f"  Has HTML: {'yes' if latest_email.get('body_html') else 'no'}",
         ])
 
     return "\n".join(context_parts)
@@ -170,7 +167,8 @@ def main() -> int:
     print("Running agent...\n")
 
     # Create session to load conversation history from emails
-    session = TowerEmailSession(session_id)
+    # Exclude the triggering email since it's already in the prompt context
+    session = TowerEmailSession(session_id, exclude_email_id=email_id)
 
     # Run agent synchronously
     try:
