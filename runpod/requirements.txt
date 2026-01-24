@@ -1,0 +1,5 @@
+runpod
+transformers[torch]
+torch
+pillow
+requests

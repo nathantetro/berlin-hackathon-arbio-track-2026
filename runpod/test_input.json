@@ -1,0 +1,6 @@
+{
+    "input": {
+        "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Cute_dog.jpg/320px-Cute_dog.jpg",
+        "labels": ["dog", "cat", "bird", "horse"]
+    }
+}
