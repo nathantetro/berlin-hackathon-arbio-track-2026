@@ -12,6 +12,7 @@ from arbie.agents.arbie_agent import arbie_agent
 from arbie.services.db.base import init_all_tables
 from arbie.services.db.email import get_emails_by_session
 from arbie.services.db.session import get_session
+from arbie.services.tower_session import TowerEmailSession
 from arbie.tools.email_tools import set_session_context
 
 # Path to trigger prompts
@@ -152,11 +153,15 @@ def main() -> int:
     print("=" * 60)
     print("Running agent...\n")
 
+    # Create session to load conversation history from emails
+    session = TowerEmailSession(session_id)
+
     # Run agent synchronously
     try:
         result = Runner.run_sync(
             starting_agent=arbie_agent,
             input=prompt,
+            session=session,
         )
 
         print("\n" + "=" * 60)
