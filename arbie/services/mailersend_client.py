@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from mailersend import emails
+from mailersend import Email
 
 
 # Sender configuration
@@ -46,7 +46,7 @@ class MailerSendClient:
                 "Missing MailerSend API key. Set MAILERSEND_API_KEY environment variable."
             )
 
-        self._mailer = emails.NewEmail(self.api_key)
+        self._mailer = Email(self.api_key)
 
     def send_email(
         self,

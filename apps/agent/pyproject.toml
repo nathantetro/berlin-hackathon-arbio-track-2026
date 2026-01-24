@@ -1,10 +1,10 @@
 [project]
-name = "arbie"
+name = "arbie-agent"
 version = "0.1.0"
-description = "Arbie - AI Agent for Property Onboarding at Arbio"
+description = "Arbie Agent - AI property onboarding agent runner"
 requires-python = ">=3.12"
 dependencies = [
-    "tower>=0.3.43",
+    "tower[iceberg]>=0.3.43",
     "openai-agents>=0.7.0",
     "openai>=2.15.0",
     "pydantic>=2.12.0",
@@ -13,10 +13,6 @@ dependencies = [
     "weasyprint>=68.0",
     "pillow>=12.1.0",
     "python-dateutil>=2.9.0",
-    # Email infrastructure
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.34.0",
     "httpx>=0.28.0",
-    "python-multipart>=0.0.20",
     "msal>=1.32.0",
 ]

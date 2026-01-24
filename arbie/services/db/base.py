@@ -12,12 +12,12 @@ from arbie.db.schemas import JOIN_COLUMNS, TABLE_SCHEMAS
 # === Table Access ===
 
 
-def get_table(name: str) -> tower.Table:
+def get_table(name: str):
     """Get a Tower table by name."""
     return tower.tables(name)
 
 
-def ensure_table(name: str) -> tower.Table:
+def ensure_table(name: str):
     """Get table, creating if needed."""
     return tower.tables(name).create_if_not_exists(TABLE_SCHEMAS[name])
 

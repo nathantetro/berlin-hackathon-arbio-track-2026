@@ -6,7 +6,7 @@ script = "./main.py"
 source = [
     ".",
     "../../arbie",
-    "../../pyproject.toml",
+    "./pyproject.toml",
 ]
 schedule = ""
 description = "Arbie Gateway - FastAPI server for email webhook notifications"
