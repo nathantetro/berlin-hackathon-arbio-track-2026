@@ -1,0 +1,12 @@
+parameters = []
+
+[app]
+name = "arbie"
+script = "./main.py"
+source = [
+    "./arbie",
+    "./main.py",
+]
+schedule = ""
+description = "Arbie - AI Agent for Property Onboarding at Arbio"
+import_paths = []

@@ -1,0 +1,15 @@
+[project]
+name = "arbie"
+version = "0.1.0"
+description = "Arbie - AI Agent for Property Onboarding at Arbio"
+requires-python = ">=3.12"
+dependencies = [
+    "openai-agents>=0.7.0",
+    "openai>=2.15.0",
+    "pydantic>=2.12.0",
+    "tavily-python>=0.7.19",
+    "mailersend>=2.0.0",
+    "weasyprint>=68.0",
+    "pillow>=12.1.0",
+    "python-dateutil>=2.9.0",
+]
