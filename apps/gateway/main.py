@@ -52,8 +52,6 @@ class WebhookPayload(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup."""
-    # Initialize database tables
-    init_all_tables()
     yield
 
 
@@ -202,6 +200,10 @@ def main():
     """Entry point for Tower execution."""
     print("Starting Arbie Gateway...")
     print(f"Webhook client state configured: {'yes' if WEBHOOK_CLIENT_STATE else 'no'}")
+
+    # Initialize database tables once in parent process (before forking workers)
+    init_all_tables()
+    print("Database tables initialized.")
 
     # Run the FastAPI server
     # Tower provides the PORT environment variable

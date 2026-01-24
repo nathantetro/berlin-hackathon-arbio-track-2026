@@ -25,12 +25,12 @@ def _tables(name: str):
     return tower.tables(name, catalog=CATALOG, namespace=NAMESPACE)
 
 
-def get_table(name: str) -> tower.Table:
+def get_table(name: str):
     """Get a Tower table by name."""
     return _tables(name)
 
 
-def ensure_table(name: str) -> tower.Table:
+def ensure_table(name: str):
     """Get table, creating if needed."""
     return _tables(name).create_if_not_exists(TABLE_SCHEMAS[name])
 
