@@ -203,22 +203,26 @@ class MailerSendClient:
         """Send notification that Arbie couldn't complete the task."""
         recipients = [original_to] if isinstance(original_to, str) else original_to
 
-        burnout_subject = "Arbie needs a moment - Your request couldn't be processed"
+        burnout_subject = "Arbie hit the wall..."
         burnout_body = f"""Hi there,
 
-Arbie got a burnout and wasn't able to finish the work on your request:
-"{original_subject}"
+    Well, this is awkward... Arbie just experienced a technical burnout while working on:
+    "{original_subject}"
 
-This sometimes happens when our systems are under heavy load. Don't worry - your submission is safe and we'll process it as soon as possible.
+    Fun Fact: Did you know that burnout isn't just feeling tired? It's actually recognized by the World Health Organization as an "occupational phenomenon" that can lead to exhaustion, mental distance from one's job, and reduced effectiveness. Even AI assistants need to respect their limits!
 
-In the meantime, you might find this resource helpful:
-https://peertac.org/2024/12/03/understanding-burnout-awareness-consequences-and-prevention/
+    Your submission is completely safe and sound - we're just giving our systems a quick coffee break.
 
-We apologize for the inconvenience and appreciate your patience.
+    While you wait, here's an interesting read about burnout awareness and prevention:
+    https://peertac.org/2024/12/03/understanding-burnout-awareness-consequences-and-prevention/
 
-Best regards,
-The Arbio Team
-"""
+    We'll be back up and running faster than you can say "work-life balance"!
+
+    Thanks for your patience (and for being cool about this),
+    The Arbio Team
+
+    P.S. - Arbie promises to come back stronger.
+    """
 
         try:
             mail_body = {}
