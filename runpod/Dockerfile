@@ -1,10 +1,9 @@
-FROM python:3.11-slim
+FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
 
 WORKDIR /app
 
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Only install what's not in base image
+RUN pip install --no-cache-dir runpod transformers pillow requests
 
 # Copy handler
 COPY handler.py .

@@ -16,21 +16,32 @@ print("Model loaded!")
 def handler(event):
     input_data = event["input"]
 
-    # Get image (URL or base64)
-    image_url = input_data.get("image_url")
-    candidate_labels = input_data.get("labels", [])
+    # Support both single image and batch
+    image_urls = input_data.get("image_urls", [])
+    if not image_urls:
+        single = input_data.get("image_url")
+        if single:
+            image_urls = [single]
 
-    if not image_url or not candidate_labels:
-        return {"error": "Missing 'image_url' or 'labels' in input"}
+    labels = input_data.get("labels", [])
 
-    # Load image from URL
-    response = requests.get(image_url)
-    image = Image.open(BytesIO(response.content))
+    if not image_urls or not labels:
+        return {"error": "Missing 'image_urls' or 'labels'"}
 
-    # Run zero-shot classification
-    predictions = classifier(image, candidate_labels=candidate_labels)
+    # Load all images
+    images = []
+    for url in image_urls:
+        response = requests.get(url)
+        images.append(Image.open(BytesIO(response.content)))
 
-    return predictions
+    # Batch classify - pipeline handles list of images
+    results = classifier(images, candidate_labels=labels)
+
+    # Pair results with URLs
+    return [
+        {"image_url": url, "predictions": preds}
+        for url, preds in zip(image_urls, results)
+    ]
 
 
 runpod.serverless.start({"handler": handler})
