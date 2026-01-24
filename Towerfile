@@ -6,7 +6,9 @@ script = "./main.py"
 source = [
     "./arbie",
     "./main.py",
+    ".scripts",
+    "pyproject.toml"
 ]
 schedule = ""
 description = "Arbie - AI Agent for Property Onboarding at Arbio"
-import_paths = []
+import_paths = [.]
