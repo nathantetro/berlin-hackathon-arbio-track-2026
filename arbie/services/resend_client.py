@@ -1,13 +1,13 @@
-"""MailerSend client for sending outbound emails.
+"""Resend client for sending outbound emails.
 
-Handles email sending via MailerSend API with Arbio branding.
+Handles email sending via Resend API with Arbio branding.
 """
 
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from mailersend import Email
+import resend
 
 
 # Sender configuration
@@ -35,18 +35,18 @@ class EmailAttachment:
     content_type: str
 
 
-class MailerSendClient:
-    """Client for sending emails via MailerSend API."""
+class ResendClient:
+    """Client for sending emails via Resend API."""
 
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.getenv("MAILERSEND_API_KEY")
+        self.api_key = api_key or os.getenv("RESEND_API_KEY")
 
         if not self.api_key:
             raise ValueError(
-                "Missing MailerSend API key. Set MAILERSEND_API_KEY environment variable."
+                "Missing Resend API key. Set RESEND_API_KEY environment variable."
             )
 
-        self._mailer = Email(self.api_key)
+        resend.api_key = self.api_key
 
     def send_email(
         self,
@@ -59,7 +59,7 @@ class MailerSendClient:
         in_reply_to: str | None = None,
         references: list[str] | None = None,
     ) -> SendResult:
-        """Send an email via MailerSend.
+        """Send an email via Resend.
 
         Args:
             to: Recipient email address(es).
@@ -77,76 +77,49 @@ class MailerSendClient:
         # Normalize recipients
         recipients = [to] if isinstance(to, str) else to
 
-        # Build mail body
-        mail_body = {}
-
-        # Set from
-        self._mailer.set_mail_from(
-            {"email": FROM_EMAIL, "name": FROM_NAME}, mail_body
-        )
-
-        # Set recipients
-        self._mailer.set_mail_to(
-            [{"email": email} for email in recipients], mail_body
-        )
-
-        # Set reply-to
-        self._mailer.set_reply_to(
-            {"email": REPLY_TO_EMAIL, "name": FROM_NAME}, mail_body
-        )
-
-        # Set subject
-        self._mailer.set_subject(subject, mail_body)
+        # Build email payload
+        payload: dict = {
+            "from": f"{FROM_NAME} <{FROM_EMAIL}>",
+            "to": recipients,
+            "subject": subject,
+            "reply_to": REPLY_TO_EMAIL,
+        }
 
         # Set body
         if body_text:
-            self._mailer.set_plaintext_content(body_text, mail_body)
+            payload["text"] = body_text
         if body_html:
-            self._mailer.set_html_content(body_html, mail_body)
+            payload["html"] = body_html
 
-        # Set custom headers for threading
-        custom_headers = []
+        # Set threading headers
+        headers = {}
         if in_reply_to:
-            custom_headers.append({"name": "In-Reply-To", "value": in_reply_to})
+            headers["In-Reply-To"] = in_reply_to
         if references:
-            custom_headers.append(
-                {"name": "References", "value": " ".join(references)}
-            )
-        if custom_headers:
-            mail_body["headers"] = custom_headers
+            headers["References"] = " ".join(references)
+        if headers:
+            payload["headers"] = headers
 
         # Add attachments
         if attachments:
-            import base64
-
-            attachment_list = []
-            for att in attachments:
-                attachment_list.append(
-                    {
-                        "filename": att.filename,
-                        "content": base64.b64encode(att.content).decode("utf-8"),
-                        "type": att.content_type,
-                    }
-                )
-            self._mailer.set_attachments(attachment_list, mail_body)
+            payload["attachments"] = [
+                {
+                    "filename": att.filename,
+                    "content": list(att.content),  # Resend expects list of bytes
+                    "content_type": att.content_type,
+                }
+                for att in attachments
+            ]
 
         # Send email
-        response = self._mailer.send(mail_body)
+        response = resend.Emails.send(payload)
 
-        # Parse response - MailerSend returns message ID in x-message-id header
-        # The SDK returns a string response on success
-        message_id = ""
-        status = "sent"
-
-        if isinstance(response, str):
-            # Successful send - response is the message ID
-            message_id = response
-        elif hasattr(response, "headers"):
-            message_id = response.headers.get("x-message-id", "")
+        # Parse response
+        message_id = response.get("id", "") if isinstance(response, dict) else ""
 
         return SendResult(
             message_id=message_id,
-            status=status,
+            status="sent",
             recipients=recipients,
             timestamp=datetime.now(timezone.utc),
         )
@@ -191,7 +164,11 @@ class MailerSendClient:
                     time.sleep(2**attempt)  # Exponential backoff
 
         # All retries failed - send burnout notification
-        self._send_burnout_notification(to, subject, last_error)
+        self._send_burnout_notification(
+            to, subject, last_error,
+            in_reply_to=in_reply_to,
+            references=references
+        )
         raise last_error
 
     def _send_burnout_notification(
@@ -199,6 +176,8 @@ class MailerSendClient:
         original_to: str | list[str],
         original_subject: str,
         error: Exception | None,
+        in_reply_to: str | None = None,
+        references: list[str] | None = None,
     ) -> None:
         """Send notification that Arbie couldn't complete the task."""
         recipients = [original_to] if isinstance(original_to, str) else original_to
@@ -225,28 +204,35 @@ class MailerSendClient:
     """
 
         try:
-            mail_body = {}
-            self._mailer.set_mail_from(
-                {"email": FROM_EMAIL, "name": FROM_NAME}, mail_body
-            )
-            self._mailer.set_mail_to(
-                [{"email": email} for email in recipients], mail_body
-            )
-            self._mailer.set_subject(burnout_subject, mail_body)
-            self._mailer.set_plaintext_content(burnout_body, mail_body)
-            self._mailer.send(mail_body)
+            payload = {
+                "from": f"{FROM_NAME} <{FROM_EMAIL}>",
+                "to": recipients,
+                "subject": burnout_subject,
+                "text": burnout_body,
+            }
+
+            # Add threading headers if available
+            headers = {}
+            if in_reply_to:
+                headers["In-Reply-To"] = in_reply_to
+            if references:
+                headers["References"] = " ".join(references)
+            if headers:
+                payload["headers"] = headers
+
+            resend.Emails.send(payload)
         except Exception:
             # Don't let burnout notification failure mask original error
             pass
 
 
 # Module-level singleton
-_client: MailerSendClient | None = None
+_client: ResendClient | None = None
 
 
-def get_mailersend_client() -> MailerSendClient:
-    """Get or create the MailerSend client singleton."""
+def get_resend_client() -> ResendClient:
+    """Get or create the Resend client singleton."""
     global _client
     if _client is None:
-        _client = MailerSendClient()
+        _client = ResendClient()
     return _client

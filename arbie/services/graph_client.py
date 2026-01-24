@@ -5,7 +5,7 @@ Handles OAuth2 authentication and email fetching from Microsoft 365.
 
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import msal
@@ -52,6 +52,18 @@ class GraphMessage:
     in_reply_to: str | None
     references: list[str]
     conversation_id: str | None
+
+
+@dataclass
+class GraphSubscription:
+    """Webhook subscription for Graph API notifications."""
+
+    id: str
+    resource: str
+    change_type: str
+    notification_url: str
+    expiration_datetime: datetime
+    client_state: str | None
 
 
 class GraphClient:
@@ -258,6 +270,127 @@ class GraphClient:
                 headers=self._get_headers(),
                 json={"isRead": True},
             )
+            response.raise_for_status()
+
+    async def create_subscription(
+        self,
+        notification_url: str,
+        client_state: str = "arbie-webhook-secret",
+        expiration_hours: int = 48,
+    ) -> GraphSubscription:
+        """Create a webhook subscription for new mail notifications.
+
+        Args:
+            notification_url: The URL to receive webhook notifications.
+            client_state: Secret string to verify webhook authenticity.
+            expiration_hours: Hours until subscription expires (max 4230 min ~70h for mail).
+
+        Returns:
+            GraphSubscription with subscription details.
+        """
+        url = f"{GRAPH_BASE_URL}/subscriptions"
+
+        # Calculate expiration (max ~70 hours for mail resources)
+        expiration = datetime.now(timezone.utc) + timedelta(hours=min(expiration_hours, 70))
+
+        payload = {
+            "changeType": "created",
+            "notificationUrl": notification_url,
+            "resource": f"users/{self.mailbox}/messages",
+            "expirationDateTime": expiration.isoformat(),
+            "clientState": client_state,
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url, headers=self._get_headers(), json=payload
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        return GraphSubscription(
+            id=data["id"],
+            resource=data["resource"],
+            change_type=data["changeType"],
+            notification_url=data["notificationUrl"],
+            expiration_datetime=datetime.fromisoformat(
+                data["expirationDateTime"].replace("Z", "+00:00")
+            ),
+            client_state=data.get("clientState"),
+        )
+
+    async def list_subscriptions(self) -> list[GraphSubscription]:
+        """List all active webhook subscriptions.
+
+        Returns:
+            List of GraphSubscription objects.
+        """
+        url = f"{GRAPH_BASE_URL}/subscriptions"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=self._get_headers())
+            response.raise_for_status()
+            data = response.json()
+
+        return [
+            GraphSubscription(
+                id=sub["id"],
+                resource=sub["resource"],
+                change_type=sub["changeType"],
+                notification_url=sub["notificationUrl"],
+                expiration_datetime=datetime.fromisoformat(
+                    sub["expirationDateTime"].replace("Z", "+00:00")
+                ),
+                client_state=sub.get("clientState"),
+            )
+            for sub in data.get("value", [])
+        ]
+
+    async def renew_subscription(
+        self, subscription_id: str, expiration_hours: int = 48
+    ) -> GraphSubscription:
+        """Renew an existing subscription.
+
+        Args:
+            subscription_id: The subscription ID to renew.
+            expiration_hours: Hours until subscription expires.
+
+        Returns:
+            Updated GraphSubscription.
+        """
+        url = f"{GRAPH_BASE_URL}/subscriptions/{subscription_id}"
+        expiration = datetime.now(timezone.utc) + timedelta(hours=min(expiration_hours, 70))
+
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(
+                url,
+                headers=self._get_headers(),
+                json={"expirationDateTime": expiration.isoformat()},
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        return GraphSubscription(
+            id=data["id"],
+            resource=data["resource"],
+            change_type=data["changeType"],
+            notification_url=data["notificationUrl"],
+            expiration_datetime=datetime.fromisoformat(
+                data["expirationDateTime"].replace("Z", "+00:00")
+            ),
+            client_state=data.get("clientState"),
+        )
+
+    async def delete_subscription(self, subscription_id: str) -> None:
+        """Delete a webhook subscription.
+
+        Args:
+            subscription_id: The subscription ID to delete.
+        """
+        url = f"{GRAPH_BASE_URL}/subscriptions/{subscription_id}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(url, headers=self._get_headers())
             response.raise_for_status()
 
 
