@@ -19,6 +19,7 @@ script = "./main.py"
 source = [
     ".",
     "../../arbie",
+    "../../pyproject.toml",
 ]
 schedule = ""
 description = "Arbie Agent - AI property onboarding agent runner"
