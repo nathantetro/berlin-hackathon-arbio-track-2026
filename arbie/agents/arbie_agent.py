@@ -23,11 +23,13 @@ from arbie.tools.session_tools import update_session
 # Import research agent for handoffs
 from arbie.agents.research_agent import research_agent
 
+# Import prompt loader
+from arbie.agents.prompt_loader import load_prompt_with_sections
 
-# Load instructions from markdown file
+
+# Load instructions from markdown file with sections
 INSTRUCTIONS_PATH = Path(__file__).parent / "prompts" / "arbie_instructions.md"
-with open(INSTRUCTIONS_PATH) as f:
-    ARBIE_INSTRUCTIONS = f.read()
+ARBIE_INSTRUCTIONS = load_prompt_with_sections(INSTRUCTIONS_PATH)
 
 
 arbie_agent = Agent(
