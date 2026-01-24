@@ -168,7 +168,7 @@ def main() -> int:
     # Run agent synchronously
     try:
         result = Runner.run_sync(
-            agent=arbie_agent,
+            starting_agent=arbie_agent,
             input=prompt,
         )
 
@@ -189,17 +189,24 @@ def main() -> int:
         # Send burnout notification on failure
         try:
             from arbie.services.db.user import get_user
-            from arbie.services.mailersend_client import get_mailersend_client
+            from arbie.services.db.email import get_emails_by_session
+            from arbie.services.resend_client import get_resend_client
 
             session = get_session(session_id)
             if session:
                 user = get_user(session.get("user_id", ""))
                 if user and user.get("email"):
-                    client = get_mailersend_client()
+                    # Get threading info from session emails
+                    emails = get_emails_by_session(session_id)
+                    in_reply_to = emails[0].get("message_id") if emails else None
+
+                    client = get_resend_client()
                     client._send_burnout_notification(
                         original_to=user["email"],
                         original_subject=f"Session {session.get('reference_code', session_id)}",
                         error=e,
+                        in_reply_to=in_reply_to,
+                        references=[in_reply_to] if in_reply_to else None,
                     )
         except Exception as notify_error:
             print(f"Failed to send burnout notification: {notify_error}")

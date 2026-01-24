@@ -1,6 +1,6 @@
 """Email communication tools for Arbie agent.
 
-Provides tools to send and fetch emails through MailerSend API
+Provides tools to send and fetch emails through Resend API
 and retrieve email history from the database.
 """
 
@@ -14,9 +14,9 @@ from arbie.models.email import Email
 from arbie.models.enums import EmailDirection, EmailType
 from arbie.services.db.base import insert, query
 from arbie.services.db.email import get_emails_by_session
-from arbie.services.mailersend_client import (
+from arbie.services.resend_client import (
     EmailAttachment,
-    get_mailersend_client,
+    get_resend_client,
 )
 
 
@@ -53,7 +53,7 @@ def send_email(
     - Provide onboarding instructions
     - Share generated documents
 
-    The email is sent via MailerSend API with Arbio branding.
+    The email is sent via Resend API with Arbio branding.
 
     Args:
         to: Recipient email address(es). Single string or list of strings.
@@ -147,7 +147,7 @@ def send_email(
 
     # Send the email
     try:
-        client = get_mailersend_client()
+        client = get_resend_client()
         result = client.send_email_with_retry(
             to=recipients,
             subject=subject,

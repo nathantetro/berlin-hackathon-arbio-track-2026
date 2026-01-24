@@ -12,6 +12,7 @@ import uvicorn
 from fastapi import FastAPI, Query, Request, Response
 from pydantic import BaseModel
 
+from arbie.services.acknowledgment import send_acknowledgment_email
 from arbie.services.db.base import init_all_tables
 from arbie.services.email_processor import process_inbound_email
 from arbie.services.graph_client import get_graph_client
@@ -63,10 +64,91 @@ app = FastAPI(
 )
 
 
+@app.get("/")
+async def root():
+    """Root endpoint for health checks."""
+    return {"status": "healthy", "service": "arbie-gateway"}
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "arbie-gateway"}
+
+
+@app.get("/subscriptions")
+async def list_subscriptions():
+    """List all active Microsoft Graph webhook subscriptions."""
+    try:
+        graph = get_graph_client()
+        subs = await graph.list_subscriptions()
+        return {
+            "subscriptions": [
+                {
+                    "id": s.id,
+                    "resource": s.resource,
+                    "notification_url": s.notification_url,
+                    "expiration": s.expiration_datetime.isoformat(),
+                }
+                for s in subs
+            ]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/subscriptions")
+async def create_subscription(request: Request):
+    """Create a new Microsoft Graph webhook subscription.
+
+    Body (optional):
+        notification_url: Override the webhook URL (defaults to this server's /webhook)
+    """
+    try:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+
+        # Default to this server's webhook URL
+        # You'll need to provide the full URL including https://
+        notification_url = body.get("notification_url")
+        if not notification_url:
+            return {
+                "error": "Please provide notification_url in request body, e.g. https://your-gateway-url/webhook"
+            }
+
+        graph = get_graph_client()
+        sub = await graph.create_subscription(
+            notification_url=notification_url,
+            client_state=WEBHOOK_CLIENT_STATE,
+        )
+
+        return {
+            "status": "created",
+            "subscription": {
+                "id": sub.id,
+                "resource": sub.resource,
+                "notification_url": sub.notification_url,
+                "expiration": sub.expiration_datetime.isoformat(),
+            },
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+
+
+@app.delete("/subscriptions/{subscription_id}")
+async def delete_subscription(subscription_id: str):
+    """Delete a Microsoft Graph webhook subscription."""
+    try:
+        graph = get_graph_client()
+        await graph.delete_subscription(subscription_id)
+        return {"status": "deleted", "id": subscription_id}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/webhook")
@@ -87,33 +169,65 @@ async def webhook_notification(request: Request):
     We must respond with 202 Accepted within 3 seconds.
     Processing happens concurrently in the background.
     """
-    # Parse the raw body first
-    body = await request.json()
+    # Log immediately when webhook is hit
+    print(f"=== WEBHOOK POST RECEIVED ===")
+    print(f"Headers: {dict(request.headers)}")
+    print(f"Query params: {dict(request.query_params)}")
+
+    # Handle validation POST - Microsoft may send POST with validationToken query param
+    validation_token = request.query_params.get("validationToken")
+    if validation_token:
+        return Response(content=validation_token, media_type="text/plain")
+
+    # Parse the raw body - handle empty body gracefully
+    body_bytes = await request.body()
+    if not body_bytes:
+        print("Received empty webhook body")
+        return {"status": "accepted"}
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        print(f"Failed to parse webhook JSON: {e}, body: {body_bytes[:200]}")
+        return {"status": "accepted"}
 
     # Validate payload structure
     try:
         payload = WebhookPayload(**body)
+        print(f"Parsed webhook payload: {len(payload.value)} notification(s)")
     except Exception as e:
         # Still return 202 to avoid Microsoft retrying invalid payloads
         print(f"Invalid webhook payload: {e}")
         return {"status": "accepted"}
 
     # Process each notification
-    for notification in payload.value:
+    for i, notification in enumerate(payload.value):
+        print(f"--- Notification {i+1} ---")
+        print(f"  subscriptionId: {notification.subscriptionId}")
+        print(f"  changeType: {notification.changeType}")
+        print(f"  resource: {notification.resource}")
+        print(f"  clientState: {notification.clientState}")
+        print(f"  expected clientState: {WEBHOOK_CLIENT_STATE}")
+
         # Verify clientState for security
         if notification.clientState != WEBHOOK_CLIENT_STATE:
-            print(f"Invalid clientState: {notification.clientState}")
+            print(f"  ❌ clientState MISMATCH - skipping")
             continue
+
+        print(f"  ✓ clientState OK")
 
         # Only process 'created' events for new messages
         if notification.changeType != "created":
+            print(f"  Skipping non-created changeType: {notification.changeType}")
             continue
 
         # Extract message ID from resourceData
         message_id = notification.resourceData.id
+        print(f"  ✓ Processing message: {message_id}")
 
         # Fire off background processing concurrently (non-blocking)
         asyncio.create_task(process_email_notification(message_id))
+        print(f"  ✓ Background task created")
 
     return {"status": "accepted"}
 
@@ -132,6 +246,17 @@ async def process_email_notification(message_id: str) -> None:
         # Fetch full message
         message = await graph.get_message(message_id)
         print(f"Fetched message: {message.subject} from {message.from_address.address}")
+
+        # Send immediate acknowledgment email
+        try:
+            send_acknowledgment_email(
+                to=message.from_address.address,
+                original_subject=message.subject,
+                in_reply_to=message.internet_message_id,
+            )
+            print(f"Sent acknowledgment email to {message.from_address.address}")
+        except Exception as ack_err:
+            print(f"Failed to send acknowledgment email: {ack_err}")
 
         # Fetch attachments if any
         attachments = []
