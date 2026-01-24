@@ -9,6 +9,7 @@ from pathlib import Path
 from agents import Runner
 from agents.tracing import set_trace_processors
 
+import arbie
 from arbie.agents.arbie_agent import arbie_agent
 from arbie.services.keywordsai_tracing import KeywordsAITraceProcessor
 from arbie.services.db.base import init_all_tables
@@ -17,8 +18,8 @@ from arbie.services.db.session import get_session
 from arbie.services.tower_session import TowerEmailSession
 from arbie.tools.email_tools import set_session_context
 
-# Path to trigger prompts
-PROMPTS_DIR = Path(__file__).parent.parent.parent / "arbie" / "agents" / "prompts" / "triggers"
+# Path to trigger prompts - use arbie module location for Tower compatibility
+PROMPTS_DIR = Path(arbie.__file__).parent / "agents" / "prompts" / "triggers"
 
 
 def load_trigger_prompt(trigger_type: str) -> str:

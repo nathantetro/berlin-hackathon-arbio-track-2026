@@ -5,11 +5,23 @@ Provides tools to generate formatted documents like PDFs using WeasyPrint.
 
 import os
 from io import BytesIO
-from typing import Any
 
 from agents import function_tool
+from pydantic import BaseModel
 
 from arbie.services.storage import get_storage_service
+
+
+class PropertySummaryData(BaseModel):
+    """Input data for property summary PDF generation."""
+    address: str = "Address not provided"
+    property_type: str = "Unknown"
+    bedrooms: int | str = "?"
+    bathrooms: int | str = "?"
+    max_guests: int | str = "?"
+    amenities: list[str] = []
+    compliance: dict[str, bool] = {}
+    missing_info: list[str] = []
 
 
 # Session context - set by the agent runner
@@ -374,9 +386,9 @@ def generate_pdf(
         return f"Error generating PDF: {e}"
 
 
-@function_tool
+@function_tool(strict_mode=False)
 def generate_property_summary_pdf(
-    property_data: dict[str, Any],
+    property_data: PropertySummaryData,
     output_path: str = "/outputs/property-summary.pdf"
 ) -> str:
     """
@@ -389,7 +401,7 @@ def generate_property_summary_pdf(
     - Missing information checklist
 
     Args:
-        property_data: Dict containing property information:
+        property_data: PropertySummaryData containing:
             - address: Property address
             - property_type: Type (apartment, house, etc.)
             - bedrooms: Number of bedrooms
@@ -416,14 +428,14 @@ def generate_property_summary_pdf(
 
     try:
         # Build HTML content from property data
-        address = property_data.get("address", "Address not provided")
-        property_type = property_data.get("property_type", "Unknown")
-        bedrooms = property_data.get("bedrooms", "?")
-        bathrooms = property_data.get("bathrooms", "?")
-        max_guests = property_data.get("max_guests", "?")
-        amenities = property_data.get("amenities", [])
-        compliance = property_data.get("compliance", {})
-        missing_info = property_data.get("missing_info", [])
+        address = property_data.address
+        property_type = property_data.property_type
+        bedrooms = property_data.bedrooms
+        bathrooms = property_data.bathrooms
+        max_guests = property_data.max_guests
+        amenities = property_data.amenities
+        compliance = property_data.compliance
+        missing_info = property_data.missing_info
 
         # Build amenities list
         amenities_html = ""

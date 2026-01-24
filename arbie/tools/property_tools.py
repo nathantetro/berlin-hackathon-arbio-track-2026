@@ -3,15 +3,24 @@
 Provides tools to read and write structured property information.
 """
 
-from typing import Any
+from typing import Literal
 from agents import function_tool
+from pydantic import BaseModel
 
 
-@function_tool
+class EvidenceData(BaseModel):
+    """Evidence for property field value."""
+    source_type: Literal["document", "image", "email", "inference"]
+    source_path: str | None = None
+    excerpt: str | None = None
+    confidence: Literal["high", "medium", "low"] = "medium"
+
+
+@function_tool(strict_mode=False)
 def edit_property(
     key: str,
-    value: Any,
-    evidence: Any = None
+    value: str | int | float | bool | list[str] | dict[str, str],
+    evidence: EvidenceData | None = None
 ) -> dict:
     """
     Create or update a property field.

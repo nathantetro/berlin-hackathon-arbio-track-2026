@@ -5,7 +5,7 @@ and retrieve email history from the database.
 """
 
 import os
-from typing import Any, Literal
+from typing import Literal
 
 from agents import function_tool
 
@@ -35,12 +35,12 @@ def get_session_context() -> str | None:
     return _current_session_id or os.getenv("session_id")
 
 
-@function_tool
+@function_tool(strict_mode=False)
 def send_email(
-    to: Any,
+    to: str | list[str],
     subject: str,
     body: str,
-    attachments: Any = None,
+    attachments: list[str] | None = None,
     reply_to_message_id: str | None = None,
 ) -> dict:
     """
@@ -198,7 +198,7 @@ def send_email(
 def fetch_emails(
     direction: Literal["inbound", "outbound", "all"] = "all",
     limit: int = 50,
-) -> Any:
+) -> list[dict]:
     """
     Fetch email history for the current session.
 
