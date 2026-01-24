@@ -211,16 +211,17 @@ async def store_attachment(
     Returns:
         Attachment dict.
     """
-    import tower
+    from arbie.services.storage import get_storage_service
 
     # Calculate checksum
     checksum = hashlib.sha256(content).hexdigest()
 
-    # Store file in Tower storage
-    storage_path = f"/attachments/{session_id}/{attachment_info.name}"
+    # Store file in Azure Blob Storage
+    storage_path = f"/attachments/{attachment_info.name}"
 
-    # Use Tower file storage
-    tower.files.write(storage_path, content)
+    # Use Azure Blob storage service
+    storage = get_storage_service()
+    await storage.write_async(storage_path, content, session_id)
 
     now = utc_now()
     attachment = Attachment(

@@ -19,4 +19,7 @@ dependencies = [
     "httpx>=0.28.0",
     "python-multipart>=0.0.20",
     "msal>=1.32.0",
+    # Azure Blob Storage
+    "azure-storage-blob>=12.20.0",
+    "azure-identity>=1.15.0",
 ]

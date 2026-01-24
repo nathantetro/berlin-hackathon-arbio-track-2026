@@ -78,7 +78,6 @@ def send_email(
         )
     """
     import polars as pl
-    import tower
 
     session_id = get_session_context()
     if not session_id:
@@ -112,11 +111,14 @@ def send_email(
     # Load attachments if provided
     email_attachments = []
     if attachments:
+        from arbie.services.storage import get_storage_service
+
+        storage = get_storage_service()
         att_list = attachments if isinstance(attachments, list) else [attachments]
         for att_path in att_list:
             try:
-                # Read file from Tower storage
-                content = tower.files.read(att_path)
+                # Read file from Azure Blob storage
+                content = storage.read(att_path, session_id)
                 filename = att_path.split("/")[-1]
 
                 # Determine content type from extension
