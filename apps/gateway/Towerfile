@@ -1,0 +1,12 @@
+parameters = []
+
+[app]
+name = "arbie-gateway"
+script = "./main.py"
+source = [
+    ".",
+    "../../arbie",
+]
+schedule = ""
+description = "Arbie Gateway - FastAPI server for email webhook notifications"
+import_paths = ["../.."]

@@ -1,0 +1,25 @@
+[[parameters]]
+name = "session_id"
+description = "The session ID to process"
+default = ""
+
+[[parameters]]
+name = "trigger_type"
+description = "Trigger type: new_submission or follow_up_response"
+default = "new_submission"
+
+[[parameters]]
+name = "email_id"
+description = "Optional email ID that triggered this run"
+default = ""
+
+[app]
+name = "arbie-agent"
+script = "./main.py"
+source = [
+    ".",
+    "../../arbie",
+]
+schedule = ""
+description = "Arbie Agent - AI property onboarding agent runner"
+import_paths = ["../.."]
