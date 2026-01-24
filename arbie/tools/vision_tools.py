@@ -3,13 +3,12 @@
 Provides image analysis capabilities using vision models.
 """
 
-from typing import Any
 from agents import function_tool
 
 
 @function_tool
 def analyze_images(
-    paths: Any,
+    paths: list[str],
     prompt: str
 ) -> str:
     """
