@@ -7,8 +7,10 @@ import os
 from pathlib import Path
 
 from agents import Runner
+from agents.tracing import set_trace_processors
 
 from arbie.agents.arbie_agent import arbie_agent
+from arbie.services.keywordsai_tracing import KeywordsAITraceProcessor
 from arbie.services.db.base import init_all_tables
 from arbie.services.db.email import get_emails_by_session
 from arbie.services.db.session import get_session
@@ -135,6 +137,19 @@ def main() -> int:
     if not api_key:
         print("Error: OPENAI_API_KEY environment variable not set")
         return 1
+
+    # Initialize Keywords AI tracing
+    keywordsai_api_key = os.getenv("KEYWORDSAI_API_KEY")
+    if keywordsai_api_key:
+        set_trace_processors([
+            KeywordsAITraceProcessor(
+                api_key=keywordsai_api_key,
+                endpoint="https://api.keywordsai.co/api/openai/v1/traces/ingest",
+            ),
+        ])
+        print("Keywords AI tracing enabled")
+    else:
+        print("Warning: KEYWORDSAI_API_KEY not set, tracing disabled")
 
     # Initialize database tables
     init_all_tables()

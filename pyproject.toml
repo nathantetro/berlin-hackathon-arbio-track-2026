@@ -22,4 +22,8 @@ dependencies = [
     # Azure Blob Storage
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.15.0",
+    # Data processing
+    "polars>=1.0.0",
+    # Tracing
+    "keywordsai-sdk>=0.4.39",
 ]

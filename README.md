@@ -19,6 +19,7 @@ An AI agent that turns chaotic property submissions into structured, ready-to-li
 - **Tower.dev** - orchestration & storage
 - **OpenAI Agents SDK** - agent framework
 - **GPT-5.2** - the brain
+- **Keywords AI** - agent tracing & observability
 - **Tavily** - web research
 - **MailerSend** - email
 - **WeasyPrint** - PDF generation
