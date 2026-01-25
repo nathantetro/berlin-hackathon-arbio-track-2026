@@ -393,8 +393,10 @@ async def process_email_notification(message_id: str) -> None:
         if message.has_attachments:
             att_list = await graph.list_attachments(message_id)
             for att in att_list:
-                # Skip inline images (embedded in HTML)
-                if att.is_inline:
+                # Skip small inline images (likely signatures/icons) but keep larger ones (real photos)
+                # Microsoft Graph marks many legitimate attachments as "inline"
+                if att.is_inline and att.size < 10_000:  # Skip only if inline AND < 10KB
+                    print(f"  Skipping small inline image: {att.name} ({att.size} bytes)")
                     continue
                 content = await graph.get_attachment(message_id, att.id)
                 attachments.append((att, content))
