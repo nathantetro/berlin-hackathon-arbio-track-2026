@@ -92,7 +92,7 @@ ATTACHMENTS_SCHEMA = pa.schema([
     ("checksum", pa.string()),
     ("status", pa.string()),
     ("extracted_text", pa.string()),
-    ("extracted_attachments", pa.list_(pa.string())),  # List of attachment IDs
+    ("extracted_metadata", pa.list_(pa.string())),  # List of attachment IDs
     ("uploaded_at", TIMESTAMP_TYPE),
     ("processed_at", TIMESTAMP_TYPE),
     ("created_at", TIMESTAMP_TYPE),

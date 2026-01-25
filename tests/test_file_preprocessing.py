@@ -66,7 +66,12 @@ def test_extract_images_and_text():
 
         for img in page.images:
             if img.image_base64:
-                img_data = base64.b64decode(img.image_base64)
+                # Strip data URI prefix if present (e.g., "data:image/jpeg;base64,")
+                image_data = img.image_base64
+                if image_data.startswith("data:"):
+                    image_data = image_data.split(",", 1)[1]
+
+                img_data = base64.b64decode(image_data)
                 images.append({
                     "data": img_data,
                     "filename": f"page_{page.index}_{img.id}",

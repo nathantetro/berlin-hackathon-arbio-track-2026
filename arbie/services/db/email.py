@@ -78,14 +78,14 @@ def get_attachments_by_session(session_id: str) -> list[dict]:
 def update_attachment_after_extraction(
     storage_path: str,
     extracted_text: str,
-    extracted_attachments: list[str] | None = None,
+    extracted_metadata: list[str] | None = None,
 ) -> bool:
     """Update attachment fields after extraction processing.
 
     Args:
         storage_path: Virtual path of the attachment (e.g., /attachments/doc.pdf).
         extracted_text: The extracted text content to store.
-        extracted_attachments: List of attachment IDs extracted from this file (e.g., images from PDF).
+        extracted_metadata: List of attachment IDs extracted from this file (e.g., images from PDF).
 
     Returns:
         True if attachment was found and updated, False otherwise.
@@ -96,8 +96,8 @@ def update_attachment_after_extraction(
 
     attachment = attachments[0]
     attachment["extracted_text"] = extracted_text
-    if extracted_attachments is not None:
-        attachment["extracted_attachments"] = extracted_attachments
+    if extracted_metadata is not None:
+        attachment["extracted_metadata"] = extracted_metadata
     attachment["status"] = AttachmentStatus.PROCESSED.value
     attachment["processed_at"] = utc_now()
     attachment["updated_at"] = utc_now()

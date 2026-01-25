@@ -137,10 +137,16 @@ def extract_images_and_text(pdf_url: str) -> dict[str, Any]:
         # Extract images
         for img in page.images:
             if img.image_base64:
-                img_data = base64.b64decode(img.image_base64)
+                # Strip data URI prefix if present (e.g., "data:image/jpeg;base64,")
+                image_data = img.image_base64
+                if image_data.startswith("data:"):
+                    image_data = image_data.split(",", 1)[1]
+
+                img_data = base64.b64decode(image_data)
+                # Use img.id directly as it includes the correct extension (e.g., "img-0.jpeg")
                 images.append({
                     "data": img_data,
-                    "filename": f"page_{page.index}_{img.id}.png",
+                    "filename": f"page_{page.index}_{img.id}",
                 })
 
     return {

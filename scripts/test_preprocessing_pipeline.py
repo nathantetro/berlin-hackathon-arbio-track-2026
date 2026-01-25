@@ -4,12 +4,13 @@ Run with: tower run local (after updating Towerfile script to this file)
 
 This script:
 1. Creates a test user and session in the database
-2. Uploads assets/pdfs/sample.pdf to blob storage
-3. Creates an email and attachment record
+2. Uploads assets/pdfs/sample.pdf and sample images to blob storage
+3. Creates email and attachment records
 4. Runs preprocess_and_classify()
 5. Verifies the results
 """
 
+import hashlib
 import os
 import uuid
 from pathlib import Path
@@ -21,8 +22,10 @@ from arbie.services.storage import get_storage_service
 from arbie.services.file_preprocessing import preprocess_and_classify
 
 
-# Path to sample PDF
-SAMPLE_PDF_PATH = Path(__file__).parent.parent / "assets" / "pdfs" / "sample.pdf"
+# Paths to sample files
+ASSETS_DIR = Path(__file__).parent.parent / "assets"
+SAMPLE_PDF_PATH = ASSETS_DIR / "pdfs" / "sample.pdf"
+SAMPLE_IMAGES_DIR = ASSETS_DIR / "images"
 
 
 def create_test_user() -> str:
@@ -91,35 +94,50 @@ def create_test_email(session_id: str) -> str:
     return email_id
 
 
-def upload_sample_pdf(session_id: str, email_id: str) -> str:
-    """Upload sample PDF to storage and create attachment record.
+def get_content_type(filename: str) -> str:
+    """Get MIME type from filename extension."""
+    ext = os.path.splitext(filename.lower())[1]
+    return {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".pdf": "application/pdf",
+    }.get(ext, "application/octet-stream")
+
+
+def upload_attachment(
+    file_path: Path,
+    session_id: str,
+    email_id: str,
+    storage,
+) -> str:
+    """Upload a file to storage and create attachment record.
 
     Returns:
-        The storage path of the uploaded PDF.
+        The storage path of the uploaded file.
     """
-    if not SAMPLE_PDF_PATH.exists():
-        raise FileNotFoundError(f"Sample PDF not found: {SAMPLE_PDF_PATH}")
-
-    storage = get_storage_service()
-    pdf_content = SAMPLE_PDF_PATH.read_bytes()
+    content = file_path.read_bytes()
+    filename = file_path.name
+    content_type = get_content_type(filename)
 
     # Upload to /attachments/ directory
-    storage_path = "/attachments/sample.pdf"
-    storage.write(storage_path, pdf_content, session_id, content_type="application/pdf")
-    print(f"Uploaded sample PDF to {storage_path}")
+    storage_path = f"/attachments/{filename}"
+    storage.write(storage_path, content, session_id, content_type=content_type)
+    print(f"  Uploaded {filename} to {storage_path}")
 
     # Create attachment record
-    import hashlib
-    checksum = hashlib.sha256(pdf_content).hexdigest()
+    checksum = hashlib.sha256(content).hexdigest()
     now = utc_now()
 
     attachment_id = f"att-test-{uuid.uuid4().hex[:8]}"
     insert("attachments", {
         "id": attachment_id,
         "email_id": email_id,
-        "filename": "sample.pdf",
-        "content_type": "application/pdf",
-        "size_bytes": len(pdf_content),
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": len(content),
         "storage_path": storage_path,
         "checksum": checksum,
         "status": "PENDING",
@@ -129,19 +147,55 @@ def upload_sample_pdf(session_id: str, email_id: str) -> str:
         "created_at": now,
         "updated_at": now,
     })
-    print(f"Created attachment record: {attachment_id}")
 
     return storage_path
 
 
-def run_preprocessing(session_id: str, email_id: str, pdf_path: str) -> dict:
+def upload_test_files(session_id: str, email_id: str, max_images: int = 5) -> list[str]:
+    """Upload sample PDF and images to storage.
+
+    Args:
+        session_id: Session ID for storage organization.
+        email_id: Email ID to link attachments to.
+        max_images: Maximum number of images to upload (to keep test fast).
+
+    Returns:
+        List of storage paths for all uploaded files.
+    """
+    storage = get_storage_service()
+    file_paths = []
+
+    print("\nUploading test files...")
+
+    # Upload PDF if it exists
+    if SAMPLE_PDF_PATH.exists():
+        path = upload_attachment(SAMPLE_PDF_PATH, session_id, email_id, storage)
+        file_paths.append(path)
+    else:
+        print(f"  WARNING: Sample PDF not found: {SAMPLE_PDF_PATH}")
+
+    # Upload sample images
+    if SAMPLE_IMAGES_DIR.exists():
+        image_files = sorted(SAMPLE_IMAGES_DIR.glob("*.jpg"))[:max_images]
+        for img_path in image_files:
+            path = upload_attachment(img_path, session_id, email_id, storage)
+            file_paths.append(path)
+    else:
+        print(f"  WARNING: Sample images directory not found: {SAMPLE_IMAGES_DIR}")
+
+    print(f"Uploaded {len(file_paths)} files total")
+    return file_paths
+
+
+def run_preprocessing(session_id: str, email_id: str, file_paths: list[str]) -> dict:
     """Run the preprocessing pipeline and return results."""
     print("\n" + "=" * 60)
     print("RUNNING PREPROCESSING PIPELINE")
     print("=" * 60)
+    print(f"Processing {len(file_paths)} files...")
 
     result = preprocess_and_classify(
-        file_paths=[pdf_path],
+        file_paths=file_paths,
         session_id=session_id,
         email_id=email_id,
     )
@@ -164,24 +218,28 @@ def verify_results(session_id: str, result: dict) -> bool:
         for path, text in extracted_text.items():
             print(f"  - {path}: {len(text)} chars")
     else:
-        print("[WARN] No text extracted (may be image-only PDF)")
+        print("[INFO] No text extracted (expected if no PDFs or image-only PDFs)")
 
     # Check image URLs
     all_image_urls = result.get("all_image_urls", [])
     if all_image_urls:
         print(f"[PASS] Found {len(all_image_urls)} images")
     else:
-        print("[WARN] No images extracted")
+        print("[WARN] No images found")
+        success = False
 
     # Check categorization
     categorized = result.get("categorized_images", {})
     if categorized:
-        print("[PASS] Images categorized by room type:")
-        for room_type, urls in categorized.items():
-            if urls:
+        non_empty = {k: v for k, v in categorized.items() if v}
+        if non_empty:
+            print(f"[PASS] Images categorized into {len(non_empty)} room types:")
+            for room_type, urls in non_empty.items():
                 print(f"  - {room_type}: {len(urls)} images")
+        else:
+            print("[INFO] No images categorized (RunPod may not be configured)")
     else:
-        print("[WARN] No image categorization")
+        print("[WARN] No image categorization returned")
 
     # Check rooms metadata
     rooms = result.get("rooms", [])
@@ -190,14 +248,14 @@ def verify_results(session_id: str, result: dict) -> bool:
         for room in rooms:
             print(f"  - {room.get('name')}: {len(room.get('objects', []))} objects")
     else:
-        print("[WARN] No room metadata extracted")
+        print("[INFO] No room metadata extracted (OpenAI may not be configured)")
 
     # Check attachment IDs were created
     attachment_ids = result.get("attachment_ids", [])
     if attachment_ids:
-        print(f"[PASS] Created {len(attachment_ids)} attachment records")
+        print(f"[PASS] Created {len(attachment_ids)} new attachment records")
     else:
-        print("[WARN] No attachment records created")
+        print("[INFO] No new attachment records created")
 
     # Check database was updated
     attachments = get_attachments_by_session(session_id)
@@ -219,9 +277,9 @@ def main() -> int:
     print("PREPROCESSING PIPELINE TEST")
     print("=" * 60)
 
-    # Check required environment variables
-    required_vars = ["MISTRAL_API_KEY"]
-    optional_vars = ["RUNPOD_API_KEY", "RUNPOD_ENDPOINT_ID", "OPENAI_API_KEY"]
+    # Check environment variables
+    required_vars = []  # No strictly required vars - pipeline handles missing gracefully
+    optional_vars = ["MISTRAL_API_KEY", "RUNPOD_API_KEY", "RUNPOD_ENDPOINT_ID", "OPENAI_API_KEY"]
 
     print("\nChecking environment...")
     missing_required = [v for v in required_vars if not os.getenv(v)]
@@ -231,7 +289,13 @@ def main() -> int:
 
     missing_optional = [v for v in optional_vars if not os.getenv(v)]
     if missing_optional:
-        print(f"WARNING: Missing optional env vars (some features disabled): {missing_optional}")
+        print(f"INFO: Missing optional env vars (some features may be skipped): {missing_optional}")
+
+    # Report which features will work
+    print("\nFeatures enabled:")
+    print(f"  - PDF OCR: {'Yes' if os.getenv('MISTRAL_API_KEY') else 'No (MISTRAL_API_KEY missing)'}")
+    print(f"  - Image classification: {'Yes' if os.getenv('RUNPOD_API_KEY') and os.getenv('RUNPOD_ENDPOINT_ID') else 'No (RunPod credentials missing)'}")
+    print(f"  - Room metadata extraction: {'Yes' if os.getenv('OPENAI_API_KEY') else 'No (OPENAI_API_KEY missing)'}")
 
     try:
         # Initialize database
@@ -243,10 +307,14 @@ def main() -> int:
         user_id = create_test_user()
         session_id = create_test_session(user_id)
         email_id = create_test_email(session_id)
-        pdf_path = upload_sample_pdf(session_id, email_id)
+        file_paths = upload_test_files(session_id, email_id, max_images=5)
+
+        if not file_paths:
+            print("ERROR: No test files uploaded")
+            return 1
 
         # Run preprocessing
-        result = run_preprocessing(session_id, email_id, pdf_path)
+        result = run_preprocessing(session_id, email_id, file_paths)
 
         # Verify results
         success = verify_results(session_id, result)

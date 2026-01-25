@@ -38,6 +38,6 @@ class Attachment(BaseEntity):
     checksum: str = Field(..., description="SHA-256 for integrity")
     status: AttachmentStatus = Field(default=AttachmentStatus.PENDING)
     extracted_text: str | None = Field(default=None)
-    extracted_attachments: list[str] = Field(default_factory=list, description="IDs of attachments extracted from this file")
+    extracted_metadata: list[str] = Field(default_factory=list, description="IDs of attachments extracted from this file")
     uploaded_at: datetime = Field(...)
     processed_at: datetime | None = Field(default=None)
