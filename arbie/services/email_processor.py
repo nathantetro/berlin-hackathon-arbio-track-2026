@@ -4,13 +4,23 @@ Coordinates session matching, user lookup, and email storage.
 """
 
 import hashlib
+import io
 import random
 import re
 import string
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 import polars as pl
+from PIL import Image
+
+# Register HEIC/HEIF support once at module load
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass  # HEIC support not available
 
 from arbie.models.base import generate_id, utc_now
 from arbie.models.email import Attachment, Email
@@ -194,6 +204,78 @@ def store_email(
     return email_dict
 
 
+# Image formats that should be converted to JPEG
+CONVERTIBLE_IMAGE_EXTENSIONS = {".png", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tiff", ".gif"}
+
+
+def _is_convertible_image(filename: str) -> bool:
+    """Check if file is an image that should be converted to JPEG."""
+    ext = Path(filename).suffix.lower()
+    return ext in CONVERTIBLE_IMAGE_EXTENSIONS
+
+
+def convert_image_to_jpeg(image_data: bytes, original_filename: str) -> tuple[bytes, str, str]:
+    """Convert any image format to JPEG.
+
+    Handles: PNG, WEBP, AVIF, HEIC, BMP, TIFF, GIF, and more.
+
+    Args:
+        image_data: Raw image bytes.
+        original_filename: Original filename.
+
+    Returns:
+        Tuple of (jpeg_bytes, new_filename, content_type).
+
+    Raises:
+        ValueError: If image cannot be converted.
+    """
+    ext = Path(original_filename).suffix.lower()
+
+    # If already JPEG, return as-is
+    if ext in {".jpg", ".jpeg"}:
+        return image_data, original_filename, "image/jpeg"
+
+    try:
+        # Open the image
+        img = Image.open(io.BytesIO(image_data))
+
+        # Convert to RGB if necessary (handles RGBA, P, L modes)
+        if img.mode in ("RGBA", "P", "LA"):
+            # Create white background for transparency
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            if img.mode in ("RGBA", "LA"):
+                # Handle alpha channel
+                alpha = img.split()[-1]
+                background.paste(img, mask=alpha)
+            else:
+                background.paste(img)
+            img = background
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Resize if too large (max 2048px on longest side for efficiency)
+        max_size = 2048
+        if max(img.size) > max_size:
+            ratio = max_size / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, Image.Resampling.BILINEAR)  # Faster than LANCZOS
+
+        # Save as JPEG (no optimize flag - it's slow)
+        output = io.BytesIO()
+        img.save(output, format="JPEG", quality=85)
+        jpeg_bytes = output.getvalue()
+
+        # Generate new filename
+        new_filename = Path(original_filename).stem + ".jpg"
+
+        return jpeg_bytes, new_filename, "image/jpeg"
+
+    except Exception as e:
+        raise ValueError(f"Failed to convert {original_filename}: {e}") from e
+
+
 async def store_attachment(
     email_id: str,
     attachment_info: GraphAttachment,
@@ -201,6 +283,8 @@ async def store_attachment(
     session_id: str,
 ) -> dict:
     """Store an attachment in the database and file storage.
+
+    Converts images (AVIF, HEIC, PNG, WEBP, etc.) to JPEG before storage.
 
     Args:
         email_id: Email this attachment belongs to.
@@ -213,22 +297,35 @@ async def store_attachment(
     """
     from arbie.services.storage import get_storage_service
 
-    # Calculate checksum
-    checksum = hashlib.sha256(content).hexdigest()
+    # Convert images to JPEG if needed
+    filename = attachment_info.name
+    content_type = attachment_info.content_type
+    file_content = content
+
+    if _is_convertible_image(filename):
+        try:
+            file_content, filename, content_type = convert_image_to_jpeg(content, filename)
+            print(f"Converted {attachment_info.name} -> {filename}")
+        except Exception as e:
+            # If conversion fails, store original file
+            print(f"Warning: Image conversion failed for {attachment_info.name}: {e}")
+
+    # Calculate checksum from final content
+    checksum = hashlib.sha256(file_content).hexdigest()
 
     # Store file in Azure Blob Storage
-    storage_path = f"/attachments/{attachment_info.name}"
+    storage_path = f"/attachments/{filename}"
 
     # Use Azure Blob storage service
     storage = get_storage_service()
-    await storage.write_async(storage_path, content, session_id)
+    await storage.write_async(storage_path, file_content, session_id)
 
     now = utc_now()
     attachment = Attachment(
         email_id=email_id,
-        filename=attachment_info.name,
-        content_type=attachment_info.content_type,
-        size_bytes=attachment_info.size,
+        filename=filename,
+        content_type=content_type,
+        size_bytes=len(file_content),
         storage_path=storage_path,
         checksum=checksum,
         status=AttachmentStatus.PENDING,

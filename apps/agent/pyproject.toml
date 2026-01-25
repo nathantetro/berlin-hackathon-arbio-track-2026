@@ -12,6 +12,7 @@ dependencies = [
     "resend>=2.0.0",
     "weasyprint>=68.0",
     "pillow>=12.1.0",
+    "pillow-heif>=0.21.0",  # HEIC/HEIF support
     "python-dateutil>=2.9.0",
     "httpx>=0.28.0",
     "msal>=1.32.0",

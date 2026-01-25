@@ -175,6 +175,7 @@ def _get_content_type(filename: str) -> str:
         ".webp": "image/webp",
         ".bmp": "image/bmp",
         ".tiff": "image/tiff",
+        ".avif": "image/avif",
         ".json": "application/json",
         ".pdf": "application/pdf",
     }.get(ext, "application/octet-stream")
@@ -182,7 +183,7 @@ def _get_content_type(filename: str) -> str:
 
 def _is_image_file(path: str) -> bool:
     """Check if a file path points to an image based on extension."""
-    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
+    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".avif"}
     ext = os.path.splitext(path.lower())[1]
     return ext in image_extensions
 
@@ -322,10 +323,11 @@ def classify_images(image_urls: list[str], timeout: float = 300.0) -> list[dict[
     """Submit images to RunPod for classification and wait for results.
 
     Uses RunPod's /runsync endpoint which blocks until completion.
+    Images are processed one at a time to avoid batch processing issues.
 
     Args:
         image_urls: List of image URLs to classify.
-        timeout: Maximum seconds to wait for classification.
+        timeout: Maximum seconds to wait for classification per image.
 
     Returns:
         List of classification results. Each item has:
@@ -340,28 +342,39 @@ def classify_images(image_urls: list[str], timeout: float = 300.0) -> list[dict[
 
     _validate_runpod_config()
 
-    with httpx.Client() as client:
-        response = client.post(
-            f"{RUNPOD_BASE_URL}/runsync",
-            headers={"Authorization": f"Bearer {RUNPOD_API_KEY}"},
-            json={
-                "input": {
-                    "image_urls": image_urls,
-                    "labels": CLIP_LABELS,
-                }
-            },
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        data = response.json()
+    results: list[dict[str, Any]] = []
 
-        if data.get("status") == "COMPLETED":
-            return data.get("output", [])
-        elif data.get("status") in ("FAILED", "CANCELLED"):
-            raise RuntimeError(f"RunPod job failed: {data}")
-        else:
-            # IN_QUEUE or IN_PROGRESS - runsync timed out
-            raise TimeoutError(f"Classification did not complete in {timeout}s: {data}")
+    with httpx.Client() as client:
+        for url in image_urls:
+            response = client.post(
+                f"{RUNPOD_BASE_URL}/runsync",
+                headers={"Authorization": f"Bearer {RUNPOD_API_KEY}"},
+                json={
+                    "input": {
+                        "image_url": url,
+                        "labels": CLIP_LABELS,
+                    }
+                },
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get("status") == "COMPLETED":
+                output = data.get("output", [])
+                if output:
+                    # Wrap predictions with image_url
+                    results.append({
+                        "image_url": url,
+                        "predictions": output,
+                    })
+            elif data.get("status") in ("FAILED", "CANCELLED"):
+                raise RuntimeError(f"RunPod job failed for {url}: {data}")
+            else:
+                # IN_QUEUE or IN_PROGRESS - runsync timed out
+                raise TimeoutError(f"Classification did not complete in {timeout}s for {url}: {data}")
+
+    return results
 
 
 def categorize_images_by_room(
@@ -412,15 +425,6 @@ def categorize_images_by_room(
     return categorized
 
 
-def _fetch_image_as_base64(url: str, client: httpx.Client) -> tuple[str, str]:
-    """Fetch an image URL and return base64 data and content type."""
-    response = client.get(url, timeout=30.0)
-    response.raise_for_status()
-    content_type = response.headers.get("content-type", "image/jpeg")
-    image_b64 = base64.b64encode(response.content).decode("utf-8")
-    return image_b64, content_type
-
-
 def extract_room_metadata(
     categorized_images: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
@@ -449,106 +453,93 @@ def extract_room_metadata(
     all_rooms: list[dict[str, Any]] = []
     openai_client = OpenAI()
 
-    with httpx.Client() as http_client:
-        for room_type, image_urls in categorized_images.items():
-            # Skip empty categories and documents
-            if not image_urls or room_type == "document":
-                continue
+    for room_type, image_urls in categorized_images.items():
+        # Skip empty categories and documents
+        if not image_urls or room_type == "document":
+            continue
 
-            print(f"\n--- Processing {room_type} ({len(image_urls)} images) ---")
+        print(f"\n--- Processing {room_type} ({len(image_urls)} images) ---")
 
-            # Build system prompt with room type hint
-            system_prompt = FILE_PROCESSOR_PROMPT.replace("{{ROOM_TYPE_HINT}}", room_type)
-            print(f"System prompt length: {len(system_prompt)} chars")
+        # Build system prompt with room type hint
+        system_prompt = FILE_PROCESSOR_PROMPT.replace("{{ROOM_TYPE_HINT}}", room_type)
+        print(f"System prompt length: {len(system_prompt)} chars")
 
-            # Build list of image identifiers
-            image_ids: list[str] = []
-            for idx, url in enumerate(image_urls):
-                # Extract filename from URL or generate one
-                filename = url.split("/")[-1].split("?")[0]
-                if not filename or filename == url:
-                    filename = f"img_{idx}.jpg"
-                image_ids.append(filename)
+        # Build list of image identifiers
+        image_ids: list[str] = []
+        for idx, url in enumerate(image_urls):
+            # Extract filename from URL or generate one
+            filename = url.split("/")[-1].split("?")[0]
+            if not filename or filename == url:
+                filename = f"img_{idx}.jpg"
+            image_ids.append(filename)
 
-            # Build user message content with images
-            user_content: list[dict[str, Any]] = [
-                {"type": "text", "text": f"Analyze these {room_type} images. Image identifiers in order: {image_ids}"}
-            ]
+        # Build user message content with images (pass signed URLs directly)
+        user_content: list[dict[str, Any]] = [
+            {"type": "text", "text": f"Analyze these {room_type} images. Image identifiers in order: {image_ids}"}
+        ]
 
-            # Fetch and encode each image
-            url_to_index: dict[str, int] = {}
-            for idx, url in enumerate(image_urls):
-                try:
-                    print(f"  Fetching image {idx + 1}/{len(image_urls)} ({image_ids[idx]}): {url[:60]}...")
-                    image_b64, content_type = _fetch_image_as_base64(url, http_client)
-                    user_content.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{content_type};base64,{image_b64}",
-                            "detail": "low",
-                        }
-                    })
-                    url_to_index[url] = idx
-                    print(f"    OK ({content_type}, {len(image_b64)} bytes b64)")
-                except Exception as e:
-                    print(f"    FAILED: {e}")
+        for idx, url in enumerate(image_urls):
+            print(f"  Adding image {idx + 1}/{len(image_urls)} ({image_ids[idx]}): {url[:60]}...")
+            user_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": url,
+                    "detail": "low",
+                }
+            })
 
-            if len(user_content) == 1:
-                print(f"  Skipping {room_type}: no images loaded successfully")
-                continue
+        # Call OpenAI Vision API
+        print(f"  Calling OpenAI API with {len(user_content) - 1} images...")
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-5.2",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                max_completion_tokens=4096,
+                response_format={"type": "json_object"},
+            )
 
-            # Call OpenAI Vision API
-            print(f"  Calling OpenAI API with {len(user_content) - 1} images...")
-            try:
-                response = openai_client.chat.completions.create(
-                    model="gpt-5.2",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content},
-                    ],
-                    max_completion_tokens=4096,
-                    response_format={"type": "json_object"},
-                )
+            result_text = response.choices[0].message.content or "[]"
+            print(f"  Response received: {len(result_text)} chars")
+            print(f"  Raw response: {result_text[:500]}...")
+            rooms = json.loads(result_text)
 
-                result_text = response.choices[0].message.content or "[]"
-                print(f"  Response received: {len(result_text)} chars")
-                print(f"  Raw response: {result_text[:500]}...")
-                rooms = json.loads(result_text)
+            # Handle both array and object responses
+            if isinstance(rooms, dict):
+                rooms = rooms.get("rooms", [rooms])
 
-                # Handle both array and object responses
-                if isinstance(rooms, dict):
-                    rooms = rooms.get("rooms", [rooms])
+            # Map attachment indices back to URLs
+            for room in rooms:
+                attachments = room.get("attachments", [])
+                # If attachments are indices, map to URLs
+                if attachments and isinstance(attachments[0], int):
+                    room["attachments"] = [
+                        image_urls[i] for i in attachments if i < len(image_urls)
+                    ]
+                # If attachments are filenames, try to match to URLs
+                elif attachments and isinstance(attachments[0], str):
+                    # Keep as-is if they're already URLs, otherwise try to match
+                    matched_urls = []
+                    for att in attachments:
+                        if att.startswith("http"):
+                            matched_urls.append(att)
+                        else:
+                            # Try to find URL containing this filename
+                            for url in image_urls:
+                                if att in url:
+                                    matched_urls.append(url)
+                                    break
+                    room["attachments"] = matched_urls if matched_urls else attachments
 
-                # Map attachment indices back to URLs
-                for room in rooms:
-                    attachments = room.get("attachments", [])
-                    # If attachments are indices, map to URLs
-                    if attachments and isinstance(attachments[0], int):
-                        room["attachments"] = [
-                            image_urls[i] for i in attachments if i < len(image_urls)
-                        ]
-                    # If attachments are filenames, try to match to URLs
-                    elif attachments and isinstance(attachments[0], str):
-                        # Keep as-is if they're already URLs, otherwise try to match
-                        matched_urls = []
-                        for att in attachments:
-                            if att.startswith("http"):
-                                matched_urls.append(att)
-                            else:
-                                # Try to find URL containing this filename
-                                for url in image_urls:
-                                    if att in url:
-                                        matched_urls.append(url)
-                                        break
-                        room["attachments"] = matched_urls if matched_urls else attachments
+                all_rooms.append(room)
+                print(f"  Added room: {room.get('name')} with {len(room.get('objects', []))} objects")
 
-                    all_rooms.append(room)
-                    print(f"  Added room: {room.get('name')} with {len(room.get('objects', []))} objects")
-
-            except Exception as e:
-                print(f"  ERROR for {room_type}: {e}")
-                import traceback
-                traceback.print_exc()
+        except Exception as e:
+            print(f"  ERROR for {room_type}: {e}")
+            import traceback
+            traceback.print_exc()
 
     print(f"\n=== extract_room_metadata DONE: {len(all_rooms)} rooms extracted ===\n")
     return all_rooms

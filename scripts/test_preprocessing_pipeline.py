@@ -19,7 +19,7 @@ from arbie.models.base import utc_now
 from arbie.services.db.base import init_all_tables, insert
 from arbie.services.db.email import get_attachments_by_session
 from arbie.services.storage import get_storage_service
-from arbie.services.file_preprocessing import preprocess_and_classify
+from arbie.services.file_preprocessing import preprocess_and_classify, classify_images
 
 
 # Paths to sample files
@@ -271,6 +271,77 @@ def verify_results(session_id: str, result: dict) -> bool:
     return success
 
 
+def test_classify_images(image_urls: list[str]) -> bool:
+    """Test the classify_images function with multiple URLs.
+
+    Verifies that:
+    1. Images are processed individually (one request per image)
+    2. Results are properly aggregated into a single list
+    3. Each result contains the expected structure
+
+    Args:
+        image_urls: List of image URLs to classify.
+
+    Returns:
+        True if test passed, False otherwise.
+    """
+    print("\n" + "=" * 60)
+    print("TESTING classify_images() - Single-file processing")
+    print("=" * 60)
+
+    if not os.getenv("RUNPOD_API_KEY") or not os.getenv("RUNPOD_ENDPOINT_ID"):
+        print("[SKIP] RunPod credentials not configured")
+        return True
+
+    if not image_urls:
+        print("[SKIP] No image URLs to test")
+        return True
+
+    # Test with multiple images to verify aggregation
+    test_urls = image_urls[:3]  # Use up to 3 images
+    print(f"Testing with {len(test_urls)} images...")
+    for i, url in enumerate(test_urls):
+        print(f"  [{i+1}] {url[:80]}...")
+
+    try:
+        results = classify_images(test_urls)
+
+        print(f"\nResults received: {len(results)} classification(s)")
+
+        # Verify we got one result per image
+        if len(results) != len(test_urls):
+            print(f"[FAIL] Expected {len(test_urls)} results, got {len(results)}")
+            return False
+
+        print(f"[PASS] Got {len(results)} results for {len(test_urls)} images")
+
+        # Verify each result has expected structure
+        for i, result in enumerate(results):
+            if "image_url" not in result:
+                print(f"[FAIL] Result {i} missing 'image_url' field")
+                return False
+            if "predictions" not in result:
+                print(f"[FAIL] Result {i} missing 'predictions' field")
+                return False
+
+            predictions = result.get("predictions", [])
+            print(f"  Image {i+1}: {len(predictions)} predictions")
+
+            # Show top prediction
+            if predictions:
+                top = max(predictions, key=lambda p: p.get("score", 0))
+                print(f"    Top: {top.get('label')} ({top.get('score', 0):.2%})")
+
+        print("[PASS] All results have correct structure")
+        return True
+
+    except Exception as e:
+        print(f"[FAIL] classify_images() raised exception: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def main() -> int:
     """Run the preprocessing pipeline test."""
     print("=" * 60)
@@ -316,8 +387,12 @@ def main() -> int:
         # Run preprocessing
         result = run_preprocessing(session_id, email_id, file_paths)
 
+        # Test classify_images with the image URLs from preprocessing
+        all_image_urls = result.get("all_image_urls", [])
+        classify_test_passed = test_classify_images(all_image_urls)
+
         # Verify results
-        success = verify_results(session_id, result)
+        success = verify_results(session_id, result) and classify_test_passed
 
         print("\n" + "=" * 60)
         if success:
