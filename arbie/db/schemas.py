@@ -16,6 +16,7 @@ ROOMS_TABLE = "rooms"
 PROPERTY_PHOTOS_TABLE = "property_photos"
 COMPLIANCE_CHECKS_TABLE = "compliance_checks"
 VALIDATION_TOKENS_TABLE = "validation_tokens"
+CONVERSATION_ITEMS_TABLE = "conversation_items"
 
 # Common timestamp type
 TIMESTAMP_TYPE = pa.timestamp("us", tz="UTC")
@@ -267,6 +268,17 @@ VALIDATION_TOKENS_SCHEMA = pa.schema([
     ("updated_at", TIMESTAMP_TYPE),
 ])
 
+# Conversation Items schema
+CONVERSATION_ITEMS_SCHEMA = pa.schema([
+    ("id", pa.string()),
+    ("session_id", pa.string()),
+    ("sequence_number", pa.int64()),
+    ("item_type", pa.string()),
+    ("item_data", pa.string()),
+    ("created_at", TIMESTAMP_TYPE),
+    ("updated_at", TIMESTAMP_TYPE),
+])
+
 # Table schemas registry
 TABLE_SCHEMAS: dict[str, pa.Schema] = {
     USERS_TABLE: USERS_SCHEMA,
@@ -282,6 +294,7 @@ TABLE_SCHEMAS: dict[str, pa.Schema] = {
     PROPERTY_PHOTOS_TABLE: PROPERTY_PHOTOS_SCHEMA,
     COMPLIANCE_CHECKS_TABLE: COMPLIANCE_CHECKS_SCHEMA,
     VALIDATION_TOKENS_TABLE: VALIDATION_TOKENS_SCHEMA,
+    CONVERSATION_ITEMS_TABLE: CONVERSATION_ITEMS_SCHEMA,
 }
 
 # Join columns for upsert operations
@@ -299,6 +312,7 @@ JOIN_COLUMNS: dict[str, list[str]] = {
     PROPERTY_PHOTOS_TABLE: ["id"],
     COMPLIANCE_CHECKS_TABLE: ["id"],
     VALIDATION_TOKENS_TABLE: ["id"],
+    CONVERSATION_ITEMS_TABLE: ["id"],
 }
 
 # All tables for iteration

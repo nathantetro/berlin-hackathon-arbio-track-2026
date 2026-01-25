@@ -162,6 +162,7 @@ async def run_agent_streamed(
         starting_agent=arbie_agent,
         input=prompt,
         session=session,
+        max_turns=40,
     )
 
     async for event in result.stream_events():
