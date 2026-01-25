@@ -282,6 +282,12 @@ Arbie""",
 
 ## Key Workflow Principles
 
+### Use Your Workspace
+- Write notes as you process (progress, findings, questions)
+- Check workspace at start of each turn for context from previous rounds
+- Draft emails before sending
+- Track missing information systematically
+
 ### Thoroughness Before Asking
 - Read all documents first
 - Analyze all images

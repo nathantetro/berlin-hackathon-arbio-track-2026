@@ -913,17 +913,17 @@
         <!-- Data Acquisition Matrix -->
         {% set completeness = (property.completeness_score or 0) * 100 %}
         {% set location_fields = [property.address_line1, property.city, property.state_province, property.postal_code, property.country] %}
-        {% set location_filled = location_fields | select('defined') | select('truthy') | list | length %}
+        {% set location_filled = location_fields | reject('none') | reject('equalto', '') | list | length %}
         {% set location_total = 5 %}
         {% set location_pct = (location_filled / location_total * 100) | int %}
 
         {% set capacity_fields = [property.max_guests, property.bedrooms, property.bathrooms, property.beds] %}
-        {% set capacity_filled = capacity_fields | select('defined') | select('truthy') | list | length %}
+        {% set capacity_filled = capacity_fields | reject('none') | reject('equalto', '') | list | length %}
         {% set capacity_total = 4 %}
         {% set capacity_pct = (capacity_filled / capacity_total * 100) | int %}
 
         {% set compliance_fields = [property.permit_number, property.permit_expiry, property.tax_id] %}
-        {% set compliance_filled = compliance_fields | select('defined') | select('truthy') | list | length %}
+        {% set compliance_filled = compliance_fields | reject('none') | reject('equalto', '') | list | length %}
         {% set compliance_total = 3 %}
         {% set compliance_pct = (compliance_filled / compliance_total * 100) | int %}
 

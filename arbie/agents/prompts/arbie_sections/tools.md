@@ -12,41 +12,123 @@ Every session has a virtual file system:
 └── outputs/          # Generated PDFs
 ```
 
+## Workspace Best Practices
+
+Your workspace (`/workspace/`) is your scratch area. **Use it actively during processing:**
+
+### Track Your Progress
+```python
+write_file(
+    path="notes/progress.md",
+    content="""# Processing Progress
+
+## Documents Reviewed
+- [x] property_guide.pdf - Address, capacity, amenities extracted
+- [x] floor_plan.pdf - 3 bedrooms, 2.5 baths confirmed
+- [ ] permit.pdf - Need to check
+
+## Images Analyzed
+- [x] Bedroom photos - 3 beds identified
+- [ ] Kitchen photos - pending
+
+## Missing Information
+- WiFi network name (have password from page 2)
+- Pool heating details
+- Office sofa bed - confirm if for guests
+"""
+)
+```
+
+### Track Missing Information
+```python
+write_file(
+    path="notes/missing_info.md",
+    content="""# Missing Information
+
+## Critical (blocking completion)
+- [ ] WiFi network name
+
+## Important (should ask)
+- [ ] Is pool heated?
+- [ ] Office sofa bed available for guests?
+
+## Nice to have
+- [ ] Parking spot number
+"""
+)
+```
+
+### Draft Emails Before Sending
+```python
+# Draft first, review, then send
+write_file(
+    path="drafts/follow_up.md",
+    content="""Hi,
+
+Thanks for submitting your property at 123 Beach Drive!
+
+Questions:
+1. WiFi network name?
+2. Pool heated?
+
+Best,
+Arbie"""
+)
+```
+
+### Why This Matters
+- **Continuity**: Notes persist across turns - check workspace first on follow-ups
+- **Thoroughness**: Tracking ensures nothing is missed
+- **Quality**: Drafting emails improves communication
+
 ## File Tools
 
 ### get_session_overview()
 
-**Purpose:** Get the big picture of all materials in this session
+**Purpose:** Get ALL files and materials available in this session
 
 **When to use:** ALWAYS call this FIRST at the start of every turn
 
 **Returns:**
-- Total counts (attachments, documents, images)
-- Document list with topics detected
-- Image list with room type guesses and quality scores
-- Suggested room groupings (pre-computed from preprocessing)
-- Flags: has_floor_plan, has_legal_documents, low_quality_images
+- `files`: Complete file tree organized by directory
+  - `attachments`: Files from emails
+  - `extracted`: Auto-extracted files (text from PDFs, images)
+  - `workspace`: Your notes and drafts
+  - `outputs`: Generated PDFs
+- `images`: List of all image paths (use with `analyze_images`)
+- `documents`: List of readable document paths (.pdf, .txt, .md, .json)
+- `session_metadata`: Status, reference_code, timestamps
 
 **Example:**
 ```python
 overview = get_session_overview()
 # Returns:
 # {
-#   total_attachments: 5,
-#   total_documents: 2,
-#   total_images: 12,
-#   documents: [
-#     {path: "attachments/email_001/property_guide.pdf", page_count: 8,
-#      extracted_topics: ["address", "amenities", "rules"]},
-#     {path: "attachments/email_001/floor_plan.pdf", page_count: 1}
-#   ],
-#   suggested_room_groupings: {
-#     "kitchen": ["extracted/guide_img_001.jpg", "attachments/email_001/kitchen.jpg"],
-#     "bedroom": ["extracted/guide_img_003.jpg", "extracted/guide_img_004.jpg"]
+#   "session_id": "abc-123",
+#   "files": {
+#     "attachments": [
+#       {"name": "property_guide.pdf", "path": "/attachments/property_guide.pdf", "size": 1024000, "type": "application/pdf"},
+#       {"name": "photo1.jpg", "path": "/attachments/photo1.jpg", "size": 512000, "type": "image/jpeg"}
+#     ],
+#     "extracted": [
+#       {"name": "property_guide.txt", "path": "/extracted/property_guide.txt", "size": 8000, "type": "text/plain"}
+#     ],
+#     "workspace": [],
+#     "outputs": []
 #   },
-#   has_floor_plan: True,
-#   low_quality_images: ["extracted/guide_img_007.jpg"]
+#   "images": ["/attachments/photo1.jpg", "/extracted/img_001.jpg"],
+#   "image_count": 2,
+#   "documents": ["/attachments/property_guide.pdf", "/extracted/property_guide.txt"],
+#   "document_count": 2,
+#   "session_metadata": {"status": "received", "reference_code": "ARB-1234", ...}
 # }
+
+# Quick access to all readable documents:
+for doc_path in overview["documents"]:
+    content = read_file(doc_path)
+
+# Quick access to all images for analysis:
+analyze_images(paths=overview["images"], prompt="Describe what you see")
 ```
 
 ### list_files(path="/", recursive=False)
@@ -70,13 +152,17 @@ list_files("workspace", recursive=True)
 
 ### read_file(path, keyword=None, context_lines=3, max_chars=10000)
 
-**Purpose:** Read content from any file
+**Purpose:** Read content from text-based files
+
+**Supported formats:**
+- `.txt`, `.md`, `.json` - Read directly
+- `.pdf` - Returns pre-extracted text from preprocessing
+
+**For images, use `analyze_images()` instead.**
 
 **Key features:**
-- Works for text files, PDFs, DOCX, XLSX, CSV
-- Keyword search with context
-- Returns extracted text for documents
-- Returns metadata only for images (use analyze_images for vision)
+- Keyword search with context lines
+- Truncates long content (max_chars)
 
 **Examples:**
 ```python

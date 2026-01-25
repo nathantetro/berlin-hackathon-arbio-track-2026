@@ -7,9 +7,14 @@ listing files, and writing notes/drafts.
 import os
 from typing import Any, Literal
 
+import polars as pl
 from agents import function_tool
 
+from arbie.services.db.base import query
 from arbie.services.storage import get_storage_service
+
+# Whitelist of supported file extensions for read_file
+ALLOWED_READ_EXTENSIONS = {".txt", ".md", ".json", ".pdf"}
 
 
 # Session context - set by the agent runner
@@ -30,25 +35,21 @@ def get_session_context() -> str | None:
 @function_tool
 def get_session_overview() -> dict:
     """
-    Get a high-level overview of the current session.
+    Get a high-level overview of the current session including all files.
 
-    Provides a summary of:
-    - Number and types of attachments
-    - Image files available
-    - Suggested room groupings based on images
-    - Session status and metadata
+    Call this FIRST at the start of every turn to understand what's available.
 
     Returns:
-        SessionOverview dict with:
-        - attachments: List of attachment summaries
-        - images: List of image paths
-        - suggested_rooms: Suggested groupings of images by room
-        - session_metadata: Status, dates, etc.
+        dict with:
+        - files: Complete file tree organized by directory
+          - attachments: List of files from emails
+          - extracted: List of auto-extracted files (text from PDFs, images)
+          - workspace: List of your notes and drafts
+          - outputs: List of generated PDFs
+        - images: List of all image paths (for use with analyze_images)
+        - documents: List of readable document paths (.pdf, .txt, .md, .json)
+        - session_metadata: Status, reference_code, timestamps
     """
-    import polars as pl
-
-    from arbie.services.db.base import query
-
     session_id = get_session_context()
     if not session_id:
         return {
@@ -62,43 +63,58 @@ def get_session_overview() -> dict:
     sessions = query("sessions", pl.col("id") == session_id)
     session = sessions[0] if sessions else None
 
-    # List files in each directory
-    attachments = []
+    # Collect files from all directories
+    files = {
+        "attachments": [],
+        "extracted": [],
+        "workspace": [],
+        "outputs": [],
+    }
     images = []
+    documents = []
 
-    try:
-        # List attachment files
-        attachment_files = storage.list_files("/attachments/", session_id, recursive=True)
-        for f in attachment_files:
-            attachments.append({
-                "name": f.name,
-                "path": f.path,
-                "size": f.size,
-                "type": f.content_type,
-            })
+    # Helper to categorize files
+    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
+    document_extensions = {".pdf", ".txt", ".md", ".json"}
 
-            # Track images separately
-            if f.content_type and f.content_type.startswith("image/"):
-                images.append(f.path)
-    except Exception:
-        pass  # No attachments yet
+    def process_file(f, category):
+        file_info = {
+            "name": f.name,
+            "path": f.path,
+            "size": f.size,
+            "type": f.content_type,
+        }
+        files[category].append(file_info)
 
-    try:
-        # List extracted files (text from PDFs, etc.)
-        extracted_files = storage.list_files("/extracted/", session_id, recursive=True)
-        for f in extracted_files:
-            if f.content_type and f.content_type.startswith("image/"):
-                images.append(f.path)
-    except Exception:
-        pass  # No extracted files yet
+        # Categorize by type
+        ext = os.path.splitext(f.name.lower())[1]
+        if ext in image_extensions or (f.content_type and f.content_type.startswith("image/")):
+            images.append(f.path)
+        elif ext in document_extensions:
+            documents.append(f.path)
+
+    # List all directories
+    for directory, category in [
+        ("/attachments/", "attachments"),
+        ("/extracted/", "extracted"),
+        ("/workspace/", "workspace"),
+        ("/outputs/", "outputs"),
+    ]:
+        try:
+            dir_files = storage.list_files(directory, session_id, recursive=True)
+            for f in dir_files:
+                process_file(f, category)
+        except Exception:
+            pass  # Directory might not exist yet
 
     # Build overview
     overview = {
         "session_id": session_id,
-        "attachments": attachments,
-        "attachment_count": len(attachments),
+        "files": files,
         "images": images,
         "image_count": len(images),
+        "documents": documents,
+        "document_count": len(documents),
         "session_metadata": {
             "status": session.get("status") if session else "unknown",
             "reference_code": session.get("reference_code") if session else None,
@@ -187,13 +203,13 @@ def read_file(
     max_chars: int = 10000
 ) -> dict:
     """
-    Read a file and extract its content, optionally filtering by keyword.
+    Read content from a text-based file.
 
-    Supports reading from:
-    - /attachments/ - Original email attachments
-    - /extracted/ - Preprocessed content (plain text from PDFs, etc.)
-    - /workspace/ - Your working notes
-    - /outputs/ - Generated files
+    Supported formats:
+    - .txt, .md, .json - Read directly from storage
+    - .pdf - Returns pre-extracted text from preprocessing
+
+    For images, use analyze_images() instead.
 
     Args:
         path: Path to the file to read
@@ -204,7 +220,7 @@ def read_file(
                    Content is truncated if longer.
 
     Returns:
-        FileContent dict with:
+        dict with:
         - text: The file content (or filtered excerpts)
         - path: Full path to the file
         - truncated: Boolean indicating if content was truncated
@@ -217,63 +233,88 @@ def read_file(
             "message": "No session context available.",
         }
 
-    storage = get_storage_service()
+    # Check file extension against whitelist
+    ext = os.path.splitext(path.lower())[1]
+    if ext not in ALLOWED_READ_EXTENSIONS:
+        return {
+            "status": "error",
+            "error_code": "unsupported_format",
+            "message": f"Unsupported file type '{ext}'. Supported: .txt, .md, .json, .pdf. For images, use analyze_images() instead.",
+        }
 
-    try:
-        # Read file content
-        content_bytes = storage.read(path, session_id)
-
-        # Try to decode as text
+    # Handle PDFs - get extracted_text from attachments table
+    if ext == ".pdf":
         try:
-            text = content_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            # Binary file - return info about it
-            return {
-                "status": "binary",
-                "path": path,
-                "message": f"Binary file ({len(content_bytes)} bytes). Use analyze_images for images.",
-                "size": len(content_bytes),
-            }
-
-        # Apply keyword filtering if requested
-        if keyword:
-            lines = text.split("\n")
-            keyword_lower = keyword.lower()
-            matching_sections = []
-            match_count = 0
-
-            for i, line in enumerate(lines):
-                if keyword_lower in line.lower():
-                    match_count += 1
-                    # Get context around the match
-                    start = max(0, i - context_lines)
-                    end = min(len(lines), i + context_lines + 1)
-                    section = "\n".join(lines[start:end])
-                    matching_sections.append(f"... (line {i + 1})\n{section}")
-
-            if matching_sections:
-                text = "\n\n".join(matching_sections)
+            attachments = query("attachments", pl.col("storage_path") == path)
+            if attachments and len(attachments) > 0:
+                attachment = attachments[0]
+                extracted_text = attachment.get("extracted_text")
+                if extracted_text:
+                    text = extracted_text
+                else:
+                    return {
+                        "status": "error",
+                        "message": "PDF text not yet extracted. Please wait for preprocessing to complete.",
+                    }
             else:
                 return {
-                    "text": "",
-                    "path": path,
-                    "truncated": False,
-                    "matches": 0,
-                    "message": f"No matches found for keyword: {keyword}",
+                    "status": "error",
+                    "message": f"PDF not found in attachments: {path}",
                 }
-
-            truncated = len(text) > max_chars
-            if truncated:
-                text = text[:max_chars] + "\n... [truncated]"
-
+        except Exception as e:
             return {
-                "text": text,
-                "path": path,
-                "truncated": truncated,
-                "matches": match_count,
+                "status": "error",
+                "message": f"Failed to read PDF extracted text: {e}",
+            }
+    else:
+        # Handle text files (.txt, .md, .json) - read from storage
+        storage = get_storage_service()
+        try:
+            content_bytes = storage.read(path, session_id)
+            text = content_bytes.decode("utf-8")
+        except FileNotFoundError:
+            return {
+                "status": "error",
+                "message": f"File not found: {path}",
+            }
+        except ValueError as e:
+            return {
+                "status": "error",
+                "message": str(e),
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to read file: {e}",
             }
 
-        # No keyword - return full content (possibly truncated)
+    # Apply keyword filtering if requested
+    if keyword:
+        lines = text.split("\n")
+        keyword_lower = keyword.lower()
+        matching_sections = []
+        match_count = 0
+
+        for i, line in enumerate(lines):
+            if keyword_lower in line.lower():
+                match_count += 1
+                # Get context around the match
+                start = max(0, i - context_lines)
+                end = min(len(lines), i + context_lines + 1)
+                section = "\n".join(lines[start:end])
+                matching_sections.append(f"... (line {i + 1})\n{section}")
+
+        if matching_sections:
+            text = "\n\n".join(matching_sections)
+        else:
+            return {
+                "text": "",
+                "path": path,
+                "truncated": False,
+                "matches": 0,
+                "message": f"No matches found for keyword: {keyword}",
+            }
+
         truncated = len(text) > max_chars
         if truncated:
             text = text[:max_chars] + "\n... [truncated]"
@@ -282,23 +323,19 @@ def read_file(
             "text": text,
             "path": path,
             "truncated": truncated,
+            "matches": match_count,
         }
 
-    except FileNotFoundError:
-        return {
-            "status": "error",
-            "message": f"File not found: {path}",
-        }
-    except ValueError as e:
-        return {
-            "status": "error",
-            "message": str(e),
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Failed to read file: {e}",
-        }
+    # No keyword - return full content (possibly truncated)
+    truncated = len(text) > max_chars
+    if truncated:
+        text = text[:max_chars] + "\n... [truncated]"
+
+    return {
+        "text": text,
+        "path": path,
+        "truncated": truncated,
+    }
 
 
 @function_tool
@@ -308,21 +345,24 @@ def write_file(
     mode: Literal["overwrite", "append"] = "overwrite"
 ) -> dict:
     """
-    Write content to a file in the workspace.
+    Write notes or drafts to your workspace.
 
-    Can only write to /workspace/ directory. Use this to:
-    - Create notes about missing information
-    - Draft emails for review
-    - Track research findings
-    - Document decisions
+    Use this actively during processing to:
+    - Track your thinking and progress as you work
+    - Note missing information you need to follow up on
+    - Draft emails before sending (review quality)
+    - Prepare property summaries for PDF generation
+    - Document decisions and findings
+
+    Can only write to /workspace/**
 
     Args:
-        path: Path to write to (must be in /workspace/)
-        content: Content to write
-        mode: Write mode - "overwrite" (default) or "append"
+        path: Path under workspace/ (e.g., "notes/progress.md", "drafts/email.md")
+        content: Content to write (markdown recommended)
+        mode: "overwrite" (default) or "append"
 
     Returns:
-        WriteResult dict with:
+        dict with:
         - path: Full path to the written file
         - bytes_written: Number of bytes written
         - mode: The mode that was used
