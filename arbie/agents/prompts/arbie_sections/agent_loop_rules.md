@@ -24,8 +24,8 @@ When you've extracted data but need clarification:
 
 ### Scenario 2: Research Required
 When you need compliance information:
-- Hand off to Research Agent (this happens within your turn)
-- Research Agent returns results
+- Call `research_compliance()` with the property address and research needs
+- The tool returns structured findings with source URLs
 - Use results to update the property (via `edit_property()`)
 - If no further questions needed, send completion email
 - The loop ends

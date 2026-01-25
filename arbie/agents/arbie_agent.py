@@ -52,8 +52,17 @@ arbie_agent = Agent(
         # Generation tools
         generate_pdf,
         # Session tools
-        update_session
+        update_session,
+        # Research Agent as a tool (returns results to Arbie)
+        research_agent.as_tool(
+            tool_name="research_compliance",
+            tool_description=(
+                "Research short-term rental regulations for a property address. "
+                "Provide the full property address and what you need researched. "
+                "Returns structured findings about permits, registration, taxes, "
+                "occupancy limits, and restrictions with source URLs."
+            ),
+        ),
     ],
-    handoffs=[research_agent],
     model="gpt-5.2"
 )
