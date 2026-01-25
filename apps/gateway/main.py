@@ -6,16 +6,32 @@ Handles Microsoft Graph webhook notifications and triggers the agent.
 import asyncio
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import tower
 import uvicorn
 from fastapi import FastAPI, Query, Request, Response
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from arbie.services.acknowledgment import send_acknowledgment_email
 from arbie.services.db.base import init_all_tables
+from arbie.services.db.email import get_emails_by_session
+from arbie.services.db.property import (
+    get_attributes_by_property,
+    get_photos_by_property,
+    get_property_by_session,
+    get_rooms_by_property,
+)
+from arbie.services.db.session import get_session, get_session_by_reference
+from arbie.services.db.user import get_user
 from arbie.services.email_processor import process_inbound_email
 from arbie.services.graph_client import get_graph_client
+
+# Templates directory
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
 # Configuration
@@ -74,6 +90,131 @@ async def root():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "arbie-gateway"}
+
+
+# --- Session Viewer UI ---
+
+
+@app.get("/session", response_class=HTMLResponse)
+async def session_viewer_home(request: Request):
+    """Session viewer home page with search."""
+    return templates.TemplateResponse(
+        "session.html",
+        {"request": request, "reference": None, "session": None, "error": None}
+    )
+
+
+@app.get("/session/{reference}", response_class=HTMLResponse)
+async def session_viewer(request: Request, reference: str):
+    """View session details by reference code."""
+    # Look up session by reference code
+    session = get_session_by_reference(reference.upper())
+
+    if not session:
+        return templates.TemplateResponse(
+            "session.html",
+            {
+                "request": request,
+                "reference": reference,
+                "session": None,
+                "error": f"Session with reference '{reference}' not found.",
+            }
+        )
+
+    # Get related data
+    user = get_user(session.get("user_id", "")) if session.get("user_id") else None
+
+    # Get property and related data
+    property_data = get_property_by_session(session["id"])
+    attributes = []
+    rooms = []
+    photos = []
+
+    if property_data:
+        property_id = property_data["id"]
+        attributes = get_attributes_by_property(property_id)
+        rooms = get_rooms_by_property(property_id)
+        photos = get_photos_by_property(property_id)
+
+    # Get emails
+    emails = get_emails_by_session(session["id"])
+    # Sort by timestamp (newest first for display)
+    emails = sorted(
+        emails,
+        key=lambda e: e.get("received_at") or e.get("sent_at") or e.get("created_at") or "",
+        reverse=True
+    )
+
+    # Convert datetime objects to strings for template
+    def serialize_datetime(obj):
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
+        return obj
+
+    # Serialize session datetimes
+    for key in ['created_at', 'updated_at', 'last_activity_at', 'completed_at']:
+        if session.get(key):
+            session[key] = serialize_datetime(session[key])
+
+    # Serialize email datetimes
+    for email in emails:
+        for key in ['received_at', 'sent_at', 'created_at']:
+            if email.get(key):
+                email[key] = serialize_datetime(email[key])
+
+    return templates.TemplateResponse(
+        "session.html",
+        {
+            "request": request,
+            "reference": reference,
+            "session": session,
+            "user": user,
+            "property": property_data or {},
+            "attributes": attributes,
+            "rooms": rooms,
+            "photos": photos,
+            "emails": emails,
+            "error": None,
+        }
+    )
+
+
+@app.get("/api/session/{reference}")
+async def api_session_details(reference: str):
+    """API endpoint to get session details as JSON."""
+    session = get_session_by_reference(reference.upper())
+
+    if not session:
+        return {"error": f"Session with reference '{reference}' not found."}
+
+    # Get related data
+    user = get_user(session.get("user_id", "")) if session.get("user_id") else None
+    property_data = get_property_by_session(session["id"])
+
+    attributes = []
+    rooms = []
+    photos = []
+
+    if property_data:
+        property_id = property_data["id"]
+        attributes = get_attributes_by_property(property_id)
+        rooms = get_rooms_by_property(property_id)
+        photos = get_photos_by_property(property_id)
+
+    emails = get_emails_by_session(session["id"])
+
+    return {
+        "session": session,
+        "user": user,
+        "property": property_data,
+        "attributes": attributes,
+        "rooms": rooms,
+        "photos": photos,
+        "emails": emails,
+    }
+
+
+# --- Subscription Management ---
 
 
 @app.get("/subscriptions")
@@ -247,17 +388,6 @@ async def process_email_notification(message_id: str) -> None:
         message = await graph.get_message(message_id)
         print(f"Fetched message: {message.subject} from {message.from_address.address}")
 
-        # Send immediate acknowledgment email
-        try:
-            send_acknowledgment_email(
-                to=message.from_address.address,
-                original_subject=message.subject,
-                in_reply_to=message.internet_message_id,
-            )
-            print(f"Sent acknowledgment email to {message.from_address.address}")
-        except Exception as ack_err:
-            print(f"Failed to send acknowledgment email: {ack_err}")
-
         # Fetch attachments if any
         attachments = []
         if message.has_attachments:
@@ -270,12 +400,29 @@ async def process_email_notification(message_id: str) -> None:
                 attachments.append((att, content))
             print(f"Fetched {len(attachments)} attachments")
 
-        # Process the email
+        # Process the email (creates/finds session)
         result = await process_inbound_email(message, attachments)
         print(
             f"Email processed: session={result.session_id}, "
             f"is_new={result.is_new_session}, trigger={result.trigger_type}"
         )
+
+        # Get session reference code for the acknowledgment email
+        session = get_session(result.session_id)
+        session_reference = session.get("reference_code") if session else None
+
+        # Send acknowledgment email only for new sessions (not follow-ups)
+        if result.is_new_session:
+            try:
+                send_acknowledgment_email(
+                    to=message.from_address.address,
+                    original_subject=message.subject,
+                    in_reply_to=message.internet_message_id,
+                    session_reference=session_reference,
+                )
+                print(f"Sent acknowledgment email to {message.from_address.address}")
+            except Exception as ack_err:
+                print(f"Failed to send acknowledgment email: {ack_err}")
 
         # Mark email as read
         await graph.mark_as_read(message_id)

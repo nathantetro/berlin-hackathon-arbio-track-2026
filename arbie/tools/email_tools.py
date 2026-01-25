@@ -14,6 +14,7 @@ from arbie.models.email import Email
 from arbie.models.enums import EmailDirection, EmailType
 from arbie.services.db.base import insert, query
 from arbie.services.db.email import get_emails_by_session
+from arbie.services.db.session import get_session
 from arbie.services.resend_client import (
     EmailAttachment,
     get_resend_client,
@@ -108,6 +109,10 @@ def send_email(
                 references.append(emails[0]["in_reply_to"])
             references.append(reply_to_message_id)
 
+    # Get session reference code for footer
+    session_data = get_session(session_id)
+    session_reference = session_data.get("reference_code") if session_data else None
+
     # Load attachments if provided
     email_attachments = []
     if attachments:
@@ -158,6 +163,7 @@ def send_email(
             attachments=email_attachments if email_attachments else None,
             in_reply_to=in_reply_to,
             references=references if references else None,
+            session_reference=session_reference,
         )
 
         # Store the outbound email in the database

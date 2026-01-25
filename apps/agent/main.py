@@ -16,7 +16,8 @@ from arbie.services.db.base import init_all_tables
 from arbie.services.db.email import get_emails_by_session
 from arbie.services.db.session import get_session
 from arbie.services.tower_session import TowerEmailSession
-from arbie.tools.email_tools import set_session_context
+from arbie.tools.email_tools import set_session_context as set_email_session_context
+from arbie.tools.session_tools import set_session_context as set_session_session_context
 
 # Path to trigger prompts - use arbie module location for Tower compatibility
 PROMPTS_DIR = Path(arbie.__file__).parent / "agents" / "prompts" / "triggers"
@@ -85,6 +86,14 @@ def build_session_context(
             f"  From: {latest_email.get('from_address', 'unknown')}",
             f"  Subject: {latest_email.get('subject', 'No subject')}",
         ])
+        # Include email body content
+        body_text = latest_email.get("body_text")
+        if body_text:
+            context_parts.extend([
+                "",
+                "Email Content:",
+                body_text.strip(),
+            ])
 
     return "\n".join(context_parts)
 
@@ -152,8 +161,9 @@ def main() -> int:
     # Initialize database tables
     init_all_tables()
 
-    # Set session context for email tools
-    set_session_context(session_id)
+    # Set session context for tools
+    set_email_session_context(session_id)
+    set_session_session_context(session_id)
 
     # Build the agent prompt
     prompt = build_agent_prompt(

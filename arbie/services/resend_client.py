@@ -15,6 +15,40 @@ FROM_EMAIL = "onboard@arbie.work"
 FROM_NAME = "Arbie - Arbio Onboarding"
 REPLY_TO_EMAIL = "onboard@arbie.work"
 
+# Gateway URL for session viewer links
+GATEWAY_BASE_URL = os.getenv("GATEWAY_BASE_URL", "https://arbie-gateway.apps.tower.dev")
+
+
+def build_session_footer(reference_code: str) -> tuple[str, str]:
+    """Build the session link footer for emails.
+
+    Args:
+        reference_code: The session reference code (e.g., ARB-2024-X7K9)
+
+    Returns:
+        Tuple of (plain_text_footer, html_footer)
+    """
+    session_url = f"{GATEWAY_BASE_URL}/session/{reference_code}"
+
+    text_footer = f"""
+---
+View your session: {session_url}
+Reference: {reference_code}
+"""
+
+    html_footer = f"""
+<hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+<p style="font-size: 12px; color: #6b7280; margin: 0; font-family: sans-serif;">
+    <a href="{session_url}" style="color: #6b7280; text-decoration: underline;">View this session on our website</a>
+    &nbsp;·&nbsp;
+    Reference: <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; color: #6b7280; font-size: 12px;">{reference_code}</code>
+    &nbsp;·&nbsp;
+    <span style="color: #6b7280;">Need support? Pay $800 extra</span>
+</p>
+"""
+
+    return text_footer, html_footer
+
 
 @dataclass
 class SendResult:
@@ -58,6 +92,7 @@ class ResendClient:
         reply_to_message_id: str | None = None,
         in_reply_to: str | None = None,
         references: list[str] | None = None,
+        session_reference: str | None = None,
     ) -> SendResult:
         """Send an email via Resend.
 
@@ -70,12 +105,25 @@ class ResendClient:
             reply_to_message_id: Internal message ID for tracking replies.
             in_reply_to: Email Message-ID header for threading.
             references: List of Message-IDs for threading.
+            session_reference: Optional session reference code to include in footer.
 
         Returns:
             SendResult with message ID and status.
         """
         # Normalize recipients
         recipients = [to] if isinstance(to, str) else to
+
+        # Add session footer if reference provided
+        if session_reference:
+            text_footer, html_footer = build_session_footer(session_reference)
+            if body_text:
+                body_text = body_text + text_footer
+            if body_html:
+                body_html = body_html + html_footer
+            # If only text provided, also create an HTML version with footer
+            if body_text and not body_html:
+                # Wrap plain text in simple HTML and add footer
+                body_html = f"<pre style='font-family: sans-serif; white-space: pre-wrap;'>{body_text.replace(text_footer, '')}</pre>{html_footer}"
 
         # Build email payload
         payload: dict = {
@@ -135,6 +183,7 @@ class ResendClient:
         in_reply_to: str | None = None,
         references: list[str] | None = None,
         max_retries: int = 1,
+        session_reference: str | None = None,
     ) -> SendResult:
         """Send an email with retry on failure.
 
@@ -157,6 +206,7 @@ class ResendClient:
                     reply_to_message_id=reply_to_message_id,
                     in_reply_to=in_reply_to,
                     references=references,
+                    session_reference=session_reference,
                 )
             except Exception as e:
                 last_error = e
