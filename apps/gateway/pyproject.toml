@@ -19,6 +19,7 @@ dependencies = [
     "tavily-python>=0.7.19",
     "weasyprint>=68.0",
     "pillow>=12.1.0",
+    "pillow-heif>=0.21.0",  # HEIC/HEIF support
     # Azure Blob Storage
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.15.0",

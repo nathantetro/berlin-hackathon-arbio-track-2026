@@ -103,3 +103,24 @@ def update_attachment_after_extraction(
     attachment["updated_at"] = utc_now()
     insert(ATTACHMENTS_TABLE, attachment)
     return True
+
+
+def update_attachment_extracted_text(storage_path: str, extracted_text: str) -> bool:
+    """Update attachment's extracted_text field.
+
+    Args:
+        storage_path: Virtual path of the attachment (e.g., /attachements/photo.png).
+        extracted_text: Text to store (e.g., room name from classification).
+
+    Returns:
+        True if attachment was found and updated, False otherwise.
+    """
+    attachments = query(ATTACHMENTS_TABLE, pl.col("storage_path") == storage_path)
+    if not attachments:
+        return False
+
+    attachment = attachments[0]
+    attachment["extracted_text"] = extracted_text
+    attachment["updated_at"] = utc_now()
+    insert(ATTACHMENTS_TABLE, attachment)
+    return True
