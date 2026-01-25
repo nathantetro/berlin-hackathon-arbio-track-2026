@@ -53,6 +53,8 @@ if bedroom_images:
     analyze_images(paths=bedroom_images, prompt="Count beds and list types")
 ```
 
+**Tip:** A generated `room_metadata.json` file may be available in `/attachments/` containing room counts and types. Check for this file to get structured room information.
+
 ### Step 4: Check Email Context
 
 ```python

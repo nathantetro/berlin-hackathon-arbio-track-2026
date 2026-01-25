@@ -12,6 +12,7 @@ from agents import Runner, set_tracing_export_api_key
 import arbie
 from arbie.agents.arbie_agent import arbie_agent
 from arbie.services.db.base import init_all_tables
+from arbie.models.enums import AttachmentStatus
 from arbie.services.db.email import get_attachments_by_session, get_emails_by_session
 from arbie.services.db.session import get_session
 from arbie.services.file_preprocessing import preprocess_and_classify
@@ -222,7 +223,7 @@ def main() -> int:
     file_paths = [
         att["storage_path"]
         for att in attachments
-        if att.get("storage_path")
+        if att.get("storage_path") and att.get("status") != AttachmentStatus.PROCESSED.value
     ]
 
     if file_paths:
