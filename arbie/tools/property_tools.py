@@ -291,7 +291,7 @@ def edit_property(
     tax_id: str | None = None,
     # Flexible attribute (key-value)
     attribute_key: str | None = None,
-    attribute_value: str | int | float | bool | list[str] | None = None,
+    attribute_value: str | int | float | bool | list[str] | dict | None = None,
     attribute_category: str | None = None,  # amenity, rule, access, etc.
     # Evidence for traceability
     evidence: EvidenceData | None = None
