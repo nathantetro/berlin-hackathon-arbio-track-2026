@@ -98,74 +98,135 @@ def get_session_overview() -> SessionOverview:
 **Returns:**
 
 ```python
-class SessionOverview:
-    # Counts
-    total_attachments: int
-    total_documents: int
-    total_images: int
+# Returns a dict with:
+{
+    "session_id": str,
+    "files": {
+        "attachments": list[AttachmentInfo],  # Files with preprocessing status
+        "extracted": list[FileInfo],           # Auto-extracted files
+        "workspace": list[FileInfo],           # Agent's working files
+        "outputs": list[FileInfo],             # Generated PDFs
+    },
+    "images": list[str],           # All image paths
+    "image_count": int,
+    "documents": list[str],        # All readable document paths
+    "document_count": int,
+    "rooms": dict[str, RoomSummary],  # Room groupings from preprocessing
+    "preprocessing_summary": {
+        "pdfs_processed": int,
+        "images_classified": int,
+        "rooms_detected": int,
+    },
+    "session_metadata": {...},
+}
 
-    # Documents (text-based files)
-    documents: list[DocumentInfo]
+# AttachmentInfo includes preprocessing status:
+{
+    "name": str,
+    "path": str,
+    "size": int,
+    "type": str,
+    "status": str,                    # "processed", "not_analyzed", "pending", etc.
+    "has_extracted_text": bool,       # For PDFs
+    "extracted_text_preview": str,    # First 200 chars
+    "room_type": str,                 # For images (from CLIP)
+}
 
-    # Images (standalone + extracted from PDFs)
-    images: list[ImageInfo]
-
-    # Pre-computed groupings (from preprocessing)
-    suggested_room_groupings: dict[str, list[str]]  # room_type → image paths
-
-    # Flags
-    has_floor_plan: bool
-    has_legal_documents: bool
-    low_quality_images: list[str]
-    potential_duplicates: list[tuple[str, str]]
-
-    # Agent's workspace files
-    workspace_files: list[str]
-
-class DocumentInfo:
-    path: str
-    filename: str
-    content_type: str
-    page_count: int | None
-    extracted_topics: list[str]  # e.g., ["address", "amenities", "house_rules"]
-    has_tables: bool
-
-class ImageInfo:
-    path: str
-    filename: str
-    source: str                  # "standalone" or "extracted_from:{path}"
-    room_type_guess: str | None  # "bedroom", "kitchen", etc.
-    quality_score: float         # 0.0 - 1.0
-    dimensions: tuple[int, int]
+# RoomSummary:
+{
+    "count": int,                     # Number of distinct rooms of this type
+    "images": list[str],              # Image paths
+    "objects": list[str],             # Detected objects (bed, nightstand, etc.)
+}
 ```
+
+**Status meanings:**
+- `"processed"` - Preprocessed data is reliable. Use extracted text, room classifications.
+- Any other status (`"not_analyzed"`, `"pending"`, `"processing"`, `"failed"`, `"unsupported"`) - Analyze the file manually.
 
 **Example:**
 
 ```python
 overview = get_session_overview()
 # Returns:
-# SessionOverview(
-#     total_attachments=5,
-#     total_documents=2,
-#     total_images=12,
-#     documents=[
-#         DocumentInfo(path="attachments/email_001/property_guide.pdf",
-#                      page_count=8, extracted_topics=["address", "amenities", "rules"]),
-#         DocumentInfo(path="attachments/email_001/floor_plan.pdf",
-#                      page_count=1, extracted_topics=["layout"])
-#     ],
-#     images=[...],
-#     suggested_room_groupings={
-#         "kitchen": ["extracted/property_guide_img_001.jpg", "attachments/email_001/kitchen.jpg"],
-#         "bedroom": ["extracted/property_guide_img_003.jpg", "extracted/property_guide_img_004.jpg"],
-#         "pool_area": ["attachments/email_001/pool.jpg"],
-#         "uncategorized": ["extracted/property_guide_img_002.jpg"]
+# {
+#     "session_id": "abc-123",
+#     "files": {
+#         "attachments": [
+#             {"name": "property_guide.pdf", "path": "/attachments/property_guide.pdf",
+#              "status": "processed", "has_extracted_text": True,
+#              "extracted_text_preview": "Property at 123 Beach..."},
+#             {"name": "bedroom1.jpg", "path": "/attachments/bedroom1.jpg",
+#              "status": "processed", "room_type": "bedroom"}
+#         ],
+#         "extracted": [...],
+#         "workspace": [],
+#         "outputs": []
 #     },
-#     has_floor_plan=True,
-#     low_quality_images=["extracted/property_guide_img_002.jpg"],
+#     "images": ["/attachments/bedroom1.jpg", ...],
+#     "image_count": 12,
+#     "documents": ["/attachments/property_guide.pdf", ...],
+#     "document_count": 2,
+#     "rooms": {
+#         "bedroom": {"count": 2, "images": [...], "objects": ["bed", "nightstand"]},
+#         "kitchen": {"count": 1, "images": [...], "objects": ["oven", "refrigerator"]},
+#     },
+#     "preprocessing_summary": {"pdfs_processed": 1, "images_classified": 8, "rooms_detected": 5},
 #     ...
-# )
+# }
+
+# Check status before trusting preprocessed data:
+for att in overview["files"]["attachments"]:
+    if att.get("status") != "processed":
+        # Analyze manually
+        analyze_images(paths=[att["path"]], prompt="Describe this image")
 ```
+
+---
+
+### `get_attachment_metadata`
+
+Get detailed preprocessing metadata for specific attachments.
+
+```python
+@function_tool
+def get_attachment_metadata(
+    paths: list[str] | None = None,
+    include_extracted_text: bool = False,
+    include_room_details: bool = False
+) -> dict:
+    """
+    Get detailed preprocessing metadata for attachments.
+
+    Args:
+        paths: Specific file paths, or None for all
+        include_extracted_text: Include full OCR text for PDFs
+        include_room_details: Include room clustering from preprocessing
+    """
+```
+
+**Returns:**
+
+```python
+{
+    "attachments": [
+        {
+            "path": str,
+            "status": str,                # Only "processed" means reliable
+            "has_extracted_text": bool,   # For PDFs
+            "extracted_text": str,        # If include_extracted_text=True
+            "room_type": str,             # For images
+            "room_name": str,             # If include_room_details=True
+            "objects": list[str],         # If include_room_details=True
+        }
+    ],
+    "rooms": list[dict],  # Full room metadata if include_room_details=True
+}
+```
+
+**Status meanings:**
+- `"processed"` - Preprocessed data is reliable
+- Any other status - Analyze the file manually
 
 ---
 

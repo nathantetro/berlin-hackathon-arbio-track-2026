@@ -85,50 +85,98 @@ Arbie"""
 
 ### get_session_overview()
 
-**Purpose:** Get ALL files and materials available in this session
+**Purpose:** Get ALL files, preprocessing metadata, and room groupings available in this session
 
 **When to use:** ALWAYS call this FIRST at the start of every turn
 
 **Returns:**
-- `files`: Complete file tree organized by directory
-  - `attachments`: Files from emails
-  - `extracted`: Auto-extracted files (text from PDFs, images)
-  - `workspace`: Your notes and drafts
-  - `outputs`: Generated PDFs
-- `images`: List of all image paths (use with `analyze_images`)
-- `documents`: List of readable document paths (.pdf, .txt, .md, .json)
-- `session_metadata`: Status, reference_code, timestamps
+```python
+{
+    "session_id": str,
+    "files": {
+        "attachments": [                      # Files from emails
+            {
+                "name": "property_guide.pdf",
+                "path": "/attachments/property_guide.pdf",
+                "type": "application/pdf",
+                "status": "processed",        # IMPORTANT: check this
+                "has_extracted_text": True,
+                "extracted_text_preview": "Property at 123 Beach..."
+            },
+            {
+                "name": "bedroom1.jpg",
+                "path": "/attachments/bedroom1.jpg",
+                "type": "image/jpeg",
+                "status": "processed",
+                "room_type": "bedroom"        # From image classification
+            }
+        ],
+        "extracted": [...],                   # Auto-extracted from PDFs
+        "workspace": [...],                   # Your notes and drafts
+        "outputs": [...]                      # Generated PDFs
+    },
+    "images": ["/attachments/bedroom1.jpg", ...],
+    "documents": ["/attachments/property_guide.pdf", ...],
+    "rooms": {                                # Room groupings (when images are processed)
+        "bedroom": {
+            "count": 2,
+            "images": ["/attachments/bedroom1.jpg", ...],
+            "objects": ["bed", "nightstand", "wardrobe"]
+        },
+        "kitchen": {...}
+    },
+    "preprocessing_summary": {
+        "pdfs_processed": 1,
+        "images_classified": 8,
+        "rooms_detected": 5
+    },
+    "session_metadata": {...}
+}
+```
+
+**Attachment status field:**
+- `"processed"` → Preprocessed data is available and reliable
+- Any other value → Analyze the file yourself (see workflow for details)
+
+### get_attachment_metadata(paths=None, include_extracted_text=False, include_room_details=False)
+
+**Purpose:** Get detailed preprocessing metadata for specific attachments
+
+**When to use:** When you need more detail than `get_session_overview()` provides
+
+**Parameters:**
+- `paths`: List of specific file paths, or None for all attachments
+- `include_extracted_text`: If True, include full OCR text for PDFs
+- `include_room_details`: If True, include full room clustering details
 
 **Example:**
 ```python
-overview = get_session_overview()
+# Get full details for bedroom images
+metadata = get_attachment_metadata(
+    paths=["/attachments/bedroom1.jpg", "/attachments/bedroom2.jpg"],
+    include_room_details=True
+)
 # Returns:
 # {
-#   "session_id": "abc-123",
-#   "files": {
-#     "attachments": [
-#       {"name": "property_guide.pdf", "path": "/attachments/property_guide.pdf", "size": 1024000, "type": "application/pdf"},
-#       {"name": "photo1.jpg", "path": "/attachments/photo1.jpg", "size": 512000, "type": "image/jpeg"}
-#     ],
-#     "extracted": [
-#       {"name": "property_guide.txt", "path": "/extracted/property_guide.txt", "size": 8000, "type": "text/plain"}
-#     ],
-#     "workspace": [],
-#     "outputs": []
-#   },
-#   "images": ["/attachments/photo1.jpg", "/extracted/img_001.jpg"],
-#   "image_count": 2,
-#   "documents": ["/attachments/property_guide.pdf", "/extracted/property_guide.txt"],
-#   "document_count": 2,
-#   "session_metadata": {"status": "received", "reference_code": "ARB-1234", ...}
+#   "attachments": [
+#     {
+#       "path": "/attachments/bedroom1.jpg",
+#       "status": "processed",
+#       "room_type": "bedroom",
+#       "room_name": "bedroom1",
+#       "objects": ["king bed", "nightstand", "lamp", "wardrobe"]
+#     },
+#     ...
+#   ],
+#   "rooms": [...]  # Full room metadata
 # }
 
-# Quick access to all readable documents:
-for doc_path in overview["documents"]:
-    content = read_file(doc_path)
-
-# Quick access to all images for analysis:
-analyze_images(paths=overview["images"], prompt="Describe what you see")
+# Get full extracted text from a PDF
+pdf_metadata = get_attachment_metadata(
+    paths=["/attachments/property_guide.pdf"],
+    include_extracted_text=True
+)
+full_text = pdf_metadata["attachments"][0].get("extracted_text", "")
 ```
 
 ### list_files(path="/", recursive=False)
@@ -518,112 +566,3 @@ edit_property(
 ```
 
 **Note:** This tool runs a specialized Research Agent that performs web searches and returns comprehensive compliance information. Control returns to you after the research is complete, so you can continue processing.
-
-## Tool Usage Patterns
-
-### Pattern: Start of Turn
-```python
-# ALWAYS start with overview
-overview = get_session_overview()
-
-# Get email context
-emails = fetch_emails(direction="inbound", limit=1)
-```
-
-### Pattern: Extract Data from Document
-```python
-# Read document
-content = read_file("attachments/email_001/property_guide.pdf")
-
-# Or search for specific info
-wifi = read_file(
-    "attachments/email_001/property_guide.pdf",
-    keyword="wifi",
-    context_lines=2
-)
-
-# Store with evidence
-edit_property(
-    key="attr:wifi_password",
-    value="BeachLife2024!",
-    evidence=Evidence(
-        type="document",
-        path="attachments/email_001/property_guide.pdf",
-        page_number=2,
-        text_snippet="WiFi Password: BeachLife2024!",
-        confidence=0.95
-    )
-)
-```
-
-### Pattern: Analyze Images
-```python
-# Use suggested groupings from overview
-bedroom_photos = overview.suggested_room_groupings["bedroom"]
-
-# Analyze
-bed_count = analyze_images(
-    paths=bedroom_photos,
-    prompt="Count all beds and list types (king/queen/twin/sofa bed)"
-)
-
-# Create room and assign photos
-result = edit_property(key="room:new", value="bedroom")
-room_id = result["room_id"]
-
-edit_property(key=f"room:{room_id}:name", value="Master Bedroom")
-edit_property(key=f"room:{room_id}:bed_count", value=1)
-
-for photo_path in bedroom_photos:
-    photo_id = # ... extract from path
-    edit_property(key=f"photo:{photo_id}:room_id", value=room_id)
-```
-
-### Pattern: Identify Gaps and Follow Up
-```python
-# Get current property state
-property = get_property()
-
-# Check for gaps (example logic)
-missing = []
-if property.wifi_password and not property.wifi_network:
-    missing.append("WiFi network name (have password)")
-if property.pool and not property.pool_heated:
-    missing.append("Is pool heated?")
-
-# Update status
-update_session(
-    status="awaiting_info",
-    status_reason="Need WiFi network name and pool details"
-)
-
-# Send follow-up 
-send_email(
-    to=emails[0].from_address,
-    subject="Re: Property Submission",
-    body=f"Hi,\n\nI have a few questions:\n\n{format_questions(missing)}\n\nBest,\nArbie"
-)
-```
-
-### Pattern: Complete Property
-```python
-# Write summary
-write_file(path="drafts/property_summary.md", content=...)
-
-# Generate PDF
-pdf_path = generate_pdf(
-    source_path="drafts/property_summary.md",
-    output_path="outputs/property_summary.pdf"
-)
-
-# Update status
-update_session(status="ready", status_reason="Property summary generated")
-
-# Send completion email
-send_email(
-    to=emails[0].from_address,
-    subject="Your property is ready!",
-    body="...",
-    attachments=[pdf_path]
-)
-```

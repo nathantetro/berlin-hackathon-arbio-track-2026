@@ -8,14 +8,53 @@ Follow this workflow for every property submission.
 
 When a new submission comes in:
 
-**Always start with `get_session_overview()`** - This gives you the complete picture:
-- What attachments were sent
-- How many documents vs images
-- Suggested room groupings (from preprocessing)
-- Quality flags (blurry images, etc.)
-- Your existing workspace files
+### Step 1: Get the Overview
 
-**Check email context:**
+**Always start with `get_session_overview()`** - This gives you the complete picture of what's available.
+
+```python
+overview = get_session_overview()
+```
+
+### Step 2: Check Attachment Status
+
+Each attachment has a `status` field. **Only trust preprocessed data when status is `"processed"`.**
+
+| Status | What to Do |
+|--------|------------|
+| `"processed"` | Use preprocessed data - extracted text, room classifications, detected objects |
+| Any other status | Analyze the file yourself using `read_file()` or `analyze_images()` |
+
+```python
+# Check each attachment
+for att in overview["files"]["attachments"]:
+    if att.get("status") == "processed":
+        # PDF: extracted text available via read_file()
+        # Image: room_type classification available
+        pass
+    else:
+        # Analyze manually
+        if att["type"].startswith("image/"):
+            analyze_images(paths=[att["path"]], prompt="Describe this room")
+```
+
+### Step 3: Use Room Groupings (if available)
+
+When images are processed, they're grouped by room type in the `rooms` field:
+
+```python
+# Get bedroom images and detected objects
+bedrooms = overview["rooms"].get("bedroom", {})
+bedroom_images = bedrooms.get("images", [])
+bedroom_objects = bedrooms.get("objects", [])  # e.g., ["bed", "nightstand", "wardrobe"]
+
+# Use for room analysis
+if bedroom_images:
+    analyze_images(paths=bedroom_images, prompt="Count beds and list types")
+```
+
+### Step 4: Check Email Context
+
 ```python
 emails = fetch_emails(direction="inbound", limit=1)
 # Review email body for context, special requests, or inline information
@@ -100,7 +139,7 @@ edit_property(key="attr:checkout_time", value="11:00 AM")
 ```python
 # Count beds across bedroom photos
 bed_analysis = analyze_images(
-    paths=overview.suggested_room_groupings["bedroom"],
+    paths=overview["rooms"]["bedroom"]["images"],
     prompt="How many beds total? List each with type (king/queen/twin/sofa bed)."
 )
 
@@ -329,7 +368,7 @@ edit_property(key="max_guests", value=8)
 # ... (all extracted data)
 
 bed_count = analyze_images(
-    paths=overview.suggested_room_groupings["bedroom"],
+    paths=overview["rooms"]["bedroom"]["images"],
     prompt="Count beds and list types"
 )
 # Create rooms and assign photos ...

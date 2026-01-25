@@ -36,7 +36,7 @@ class Attachment(BaseEntity):
     size_bytes: int = Field(...)
     storage_path: str = Field(..., description="Path in file storage")
     checksum: str = Field(..., description="SHA-256 for integrity")
-    status: AttachmentStatus = Field(default=AttachmentStatus.PENDING)
+    status: AttachmentStatus = Field(default=AttachmentStatus.NOT_ANALYZED)
     extracted_text: str | None = Field(default=None)
     extracted_metadata: list[str] = Field(default_factory=list, description="IDs of attachments extracted from this file")
     uploaded_at: datetime = Field(...)

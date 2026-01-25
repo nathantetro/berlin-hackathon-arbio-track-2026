@@ -231,7 +231,7 @@ async def store_attachment(
         size_bytes=attachment_info.size,
         storage_path=storage_path,
         checksum=checksum,
-        status=AttachmentStatus.PENDING,
+        status=AttachmentStatus.NOT_ANALYZED,
         uploaded_at=now,
         created_at=now,
         updated_at=now,
