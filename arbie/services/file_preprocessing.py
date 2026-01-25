@@ -23,6 +23,7 @@ from arbie.models.base import utc_now
 from arbie.models.email import Attachment
 from arbie.models.enums import AttachmentStatus
 from arbie.services.db.base import insert
+from arbie.services.db.email import update_attachment_after_extraction
 from arbie.services.storage import (
     get_storage_service,
     StorageService,
@@ -51,6 +52,7 @@ ROOM_TYPES = [
     "garage",
     "garden",
     "document",
+    "other",  # Catch-all for low confidence or unknown classifications
 ]
 
 # CLIP-style labels for zero-shot classification (natural language works better)
@@ -73,6 +75,18 @@ CLIP_LABELS = [
 CLIP_LABEL_TO_ROOM = dict(zip(CLIP_LABELS, ROOM_TYPES))
 
 
+def _validate_runpod_config() -> None:
+    """Validate RunPod configuration is available.
+
+    Raises:
+        ValueError: If RUNPOD_ENDPOINT_ID or RUNPOD_API_KEY are not set.
+    """
+    if not RUNPOD_ENDPOINT_ID or not RUNPOD_API_KEY:
+        raise ValueError(
+            "RUNPOD_ENDPOINT_ID and RUNPOD_API_KEY environment variables must be set"
+        )
+
+
 def _get_mistral_client() -> Mistral:
     """Get Mistral client instance."""
     api_key = os.getenv("MISTRAL_API_KEY")
@@ -91,18 +105,25 @@ def extract_images_and_text(pdf_url: str) -> dict[str, Any]:
         Dict with:
             - 'text': Combined markdown text from all pages
             - 'images': List of dicts with 'data' (bytes) and 'filename' (str)
+
+    Raises:
+        ValueError: If MISTRAL_API_KEY is not set.
+        RuntimeError: If OCR processing fails.
     """
     client = _get_mistral_client()
 
     # Call Mistral OCR API
-    result = client.ocr.process(
-        model="mistral-ocr-latest",
-        document={
-            "type": "document_url",
-            "document_url": pdf_url,
-        },
-        include_image_base64=True,
-    )
+    try:
+        result = client.ocr.process(
+            model="mistral-ocr-latest",
+            document={
+                "type": "document_url",
+                "document_url": pdf_url,
+            },
+            include_image_base64=True,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Mistral OCR failed for {pdf_url}: {e}") from e
 
     # Combine text from all pages
     text_parts: list[str] = []
@@ -135,9 +156,6 @@ def _get_signed_url(
 ) -> str:
     """Convert a virtual path to a signed blob URL for public access."""
     return storage.get_signed_url(virtual_path, session_id)
-
-
-# TODO: iphone image format
 
 
 def _get_content_type(filename: str) -> str:
@@ -256,6 +274,9 @@ def preprocess_files(
             extraction = extract_images_and_text(pdf_url)
             extracted_text[path] = extraction["text"]
 
+            # Collect IDs of extracted image attachments
+            pdf_extracted_attachment_ids: list[str] = []
+
             # Store extracted images to Azure Blob Storage and create DB records
             for idx, img_info in enumerate(extraction["images"]):
                 pdf_name = os.path.splitext(os.path.basename(path))[0]
@@ -275,6 +296,14 @@ def preprocess_files(
                     storage_path=virtual_path,
                 )
                 attachment_ids.append(attachment["id"])
+                pdf_extracted_attachment_ids.append(attachment["id"])
+
+            # Update original PDF attachment with extracted data
+            update_attachment_after_extraction(
+                path,
+                extraction["text"],
+                pdf_extracted_attachment_ids,
+            )
 
     return {
         "image_urls": image_urls,
@@ -296,9 +325,14 @@ def classify_images(image_urls: list[str], timeout: float = 300.0) -> list[dict[
         List of classification results. Each item has:
             - 'image_url': The image URL
             - 'predictions': List of {'label': str, 'score': float}
+
+    Raises:
+        ValueError: If RunPod credentials are not configured.
     """
     if not image_urls:
         return []
+
+    _validate_runpod_config()
 
     with httpx.Client() as client:
         response = client.post(
