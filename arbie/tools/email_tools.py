@@ -61,7 +61,8 @@ def send_email(
         subject: Email subject line
         body: Email body (plain text or HTML)
         attachments: Optional list of file paths to attach (from /workspace/ or /outputs/)
-        reply_to_message_id: Optional message ID to reply to (maintains thread)
+        reply_to_message_id: Optional message ID to reply to. If not provided,
+            automatically threads to the most recent inbound email in the session.
 
     Returns:
         SendEmailResult dict with:
@@ -95,7 +96,15 @@ def send_email(
     body_text = None if is_html else body
     body_html = body if is_html else None
 
-    # Look up threading information if reply_to_message_id provided
+    # Auto-thread to most recent inbound email if not explicitly specified
+    if not reply_to_message_id:
+        recent_inbound = get_emails_by_session(
+            session_id, direction="inbound", limit=1
+        )
+        if recent_inbound:
+            reply_to_message_id = recent_inbound[0].message_id
+
+    # Look up threading information
     in_reply_to = None
     references = []
 
@@ -229,9 +238,13 @@ def fetch_emails(
         - to_emails: List of recipient addresses
         - subject: Email subject
         - body: Email body content
-        - attachments: List of attachment filenames
+        - attachments: List of attachment dicts with:
+          - filename: Name of the attached file
+          - content_type: MIME type (e.g., "application/pdf", "image/jpeg")
+          - size_bytes: File size in bytes
+          - storage_path: Path to file in storage (for use with read_file)
         - timestamp: When the email was sent/received
-        - thread_id: Conversation thread ID
+        - in_reply_to: Message ID this email is replying to
 
     Emails are returned in reverse chronological order (newest first).
     """
@@ -277,6 +290,19 @@ def fetch_emails(
             or email.get("created_at")
         )
 
+        # Get attachments for this email
+        from arbie.services.db.email import get_attachments_by_email
+        email_attachments = get_attachments_by_email(email.get("id", ""))
+        attachments_info = [
+            {
+                "filename": att.get("filename"),
+                "content_type": att.get("content_type"),
+                "size_bytes": att.get("size_bytes"),
+                "storage_path": att.get("storage_path"),
+            }
+            for att in email_attachments
+        ]
+
         result.append(
             {
                 "message_id": email.get("message_id"),
@@ -285,6 +311,7 @@ def fetch_emails(
                 "to_emails": email.get("to_addresses", []),
                 "subject": email.get("subject"),
                 "body": body[:2000] if len(body) > 2000 else body,  # Truncate long bodies
+                "attachments": attachments_info,
                 "timestamp": timestamp.isoformat() if timestamp else None,
                 "in_reply_to": email.get("in_reply_to"),
             }

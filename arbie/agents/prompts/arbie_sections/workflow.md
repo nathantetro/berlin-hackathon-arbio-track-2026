@@ -177,9 +177,8 @@ I have a few quick questions:
 
 Please reply with the details.
 
-Best,
-Arbie""",
-    reply_to_message_id=original_message_id
+Thanks,
+Arbie"""
 )
 # Loop terminates
 ```
@@ -340,13 +339,12 @@ property = get_property()
 # Check: Have wifi_password but not wifi_network
 # Check: Have pool but not pool_heated
 
-# COMMUNICATE
+# COMMUNICATE 
 update_session(status="awaiting_info", status_reason="...")
 send_email(
     to="owner@example.com",
     subject="Re: Property Submission - Quick questions",
-    body="Hi,\n\nWhat's the WiFi network name?...",
-    reply_to_message_id=emails[0].message_id
+    body="Hi,\n\nWhat's the WiFi network name?..."
 )
 # Turn ends
 ```

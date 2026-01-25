@@ -338,11 +338,16 @@ property = get_property()
 
 ### fetch_emails(direction="all", limit=50)
 
-**Purpose:** Retrieve emails for this session
+**Purpose:** Retrieve emails for this session with full attachment metadata
 
 **Parameters:**
 - direction: "inbound", "outbound", or "all"
 - limit: max number to return
+
+**Returns:** Each email includes:
+- Email metadata (direction, from, to, subject, body)
+- **Attachments list** with filename, content_type, size_bytes, and storage_path
+- Threading information (message_id, in_reply_to)
 
 **Example:**
 ```python
@@ -351,10 +356,12 @@ emails = fetch_emails(direction="inbound", limit=1)
 original_email = emails[0]
 
 # Access fields
-original_email.message_id  # For threading
-original_email.body_text   # Email content
-original_email.from_address
-original_email.attachments  # List of attachment paths
+original_email["message_id"]  # For threading
+original_email["body"]        # Email content
+original_email["from_email"]
+original_email["attachments"] # List of attachment dicts
+# Example: [{"filename": "guide.pdf", "content_type": "application/pdf", 
+#            "size_bytes": 1024000, "storage_path": "/attachments/guide.pdf"}]
 ```
 
 ### send_email(to, subject, body, attachments=None, reply_to_message_id=None)
@@ -365,9 +372,7 @@ original_email.attachments  # List of attachment paths
 
 **Examples:**
 ```python
-# Send follow-up questions (maintain threading)
-emails = fetch_emails(direction="inbound", limit=1)
-
+# Send follow-up questions (threading is automatic)
 send_email(
     to="owner@example.com",
     subject="Re: Property Submission - A few questions",
@@ -382,9 +387,8 @@ I have a few quick questions:
 
 Please reply with the details.
 
-Best,
-Arbie""",
-    reply_to_message_id=emails[0].message_id  # Keep thread intact
+Cheers,
+Arbie"""
 )
 
 # Send completion email with PDF
@@ -399,7 +403,7 @@ I've attached a summary PDF. Please review it and validate:
 
 https://arbie.arbio.com/validate/abc123xyz
 
-Best,
+All the best,
 Arbie""",
     attachments=["outputs/property_summary.pdf"]
 )
@@ -587,12 +591,11 @@ update_session(
     status_reason="Need WiFi network name and pool details"
 )
 
-# Send follow-up
+# Send follow-up 
 send_email(
     to=emails[0].from_address,
     subject="Re: Property Submission",
-    body=f"Hi,\n\nI have a few questions:\n\n{format_questions(missing)}\n\nBest,\nArbie",
-    reply_to_message_id=emails[0].message_id
+    body=f"Hi,\n\nI have a few questions:\n\n{format_questions(missing)}\n\nBest,\nArbie"
 )
 ```
 

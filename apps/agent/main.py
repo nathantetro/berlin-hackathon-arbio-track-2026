@@ -87,6 +87,20 @@ def build_session_context(
             f"  From: {latest_email.get('from_address', 'unknown')}",
             f"  Subject: {latest_email.get('subject', 'No subject')}",
         ])
+        
+        # Include attachment info
+        from arbie.services.db.email import get_attachments_by_email
+        attachments = get_attachments_by_email(latest_email.get("id", ""))
+        if attachments:
+            context_parts.append(f"  Attachments: {len(attachments)} file(s)")
+            for att in attachments[:5]:  # Show first 5
+                filename = att.get("filename", "unknown")
+                content_type = att.get("content_type", "unknown")
+                size_kb = att.get("size_bytes", 0) // 1024
+                context_parts.append(f"    - {filename} ({content_type}, {size_kb}KB)")
+            if len(attachments) > 5:
+                context_parts.append(f"    - ... and {len(attachments) - 5} more")
+        
         # Include email body content
         body_text = latest_email.get("body_text")
         if body_text:
