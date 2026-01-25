@@ -40,46 +40,51 @@ def _get_content_type(path: str) -> str:
     return content_types.get(ext, "image/jpeg")
 
 
-@function_tool
-def analyze_images(
-    paths: list[str],
-    prompt: str
-) -> str:
-    """
-    Analyze one or more images using a vision model.
-
-    Send images to a vision-capable model with a custom prompt to extract
-    information. Useful for:
-    - Identifying room types from photos
-    - Counting beds, bathrooms, amenities
-    - Assessing property condition
-    - Reading text from images (signs, documents)
-    - Detecting safety features (smoke detectors, fire extinguishers)
-
+def load_image_as_base64(path: str) -> tuple[str, str]:
+    """Load an image file and return its base64 encoding and content type.
+    
     Args:
-        paths: List of image file paths to analyze (typically in /attachments/)
-        prompt: The analysis prompt/question to ask about the images.
-                Be specific about what information you want extracted.
+        path: Path to the image file
+        
+    Returns:
+        Tuple of (base64_encoded_string, content_type)
+        
+    Raises:
+        FileNotFoundError: If the image file doesn't exist
+        Exception: For other file reading errors
+    """
+    with open(path, "rb") as f:
+        image_bytes = f.read()
+    
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    content_type = _get_content_type(path)
+    
+    return image_b64, content_type
 
+
+def analyze_images_impl(
+    paths: list[str],
+    prompt: str,
+    session_id: str | None = None
+) -> str:
+    """Core implementation of image analysis without session context dependency.
+    
+    This function can be used directly for testing or when session context
+    is provided explicitly.
+    
+    Args:
+        paths: List of image file paths to analyze
+        prompt: The analysis prompt/question to ask about the images
+        session_id: Optional session ID for storage access. If None, reads from filesystem.
+        
     Returns:
         The vision model's response as a string with the requested analysis.
-
-    Example:
-        analyze_images(
-            paths=["/attachments/bedroom1.jpg", "/attachments/bedroom2.jpg"],
-            prompt="How many beds are in each image? What size are they?"
-        )
     """
     from openai import OpenAI
-
-    session_id = get_session_context()
-    if not session_id:
-        return "Error: No session context available."
 
     if not paths:
         return "Error: No image paths provided."
 
-    storage = get_storage_service()
     client = OpenAI()
 
     # Build message content with images
@@ -92,14 +97,15 @@ def analyze_images(
 
     for path in paths:
         try:
-            # Read image from storage
-            image_bytes = storage.read(path, session_id)
-
-            # Encode as base64
-            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-            # Get content type
-            content_type = _get_content_type(path)
+            if session_id:
+                # Read from storage service
+                storage = get_storage_service()
+                image_bytes = storage.read(path, session_id)
+                image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+                content_type = _get_content_type(path)
+            else:
+                # Read directly from filesystem (for testing)
+                image_b64, content_type = load_image_as_base64(path)
 
             # Add image to content
             content.append({
@@ -142,6 +148,43 @@ def analyze_images(
 
     except Exception as e:
         return f"Error calling vision API: {e}"
+
+
+@function_tool
+def analyze_images(
+    paths: list[str],
+    prompt: str
+) -> str:
+    """
+    Analyze one or more images using a vision model.
+
+    Send images to a vision-capable model with a custom prompt to extract
+    information. Useful for:
+    - Identifying room types from photos
+    - Counting beds, bathrooms, amenities
+    - Assessing property condition
+    - Reading text from images (signs, documents)
+    - Detecting safety features (smoke detectors, fire extinguishers)
+
+    Args:
+        paths: List of image file paths to analyze (typically in /attachments/)
+        prompt: The analysis prompt/question to ask about the images.
+                Be specific about what information you want extracted.
+
+    Returns:
+        The vision model's response as a string with the requested analysis.
+
+    Example:
+        analyze_images(
+            paths=["/attachments/bedroom1.jpg", "/attachments/bedroom2.jpg"],
+            prompt="How many beds are in each image? What size are they?"
+        )
+    """
+    session_id = get_session_context()
+    if not session_id:
+        return "Error: No session context available."
+
+    return analyze_images_impl(paths, prompt, session_id)
 
 
 @function_tool

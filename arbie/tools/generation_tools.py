@@ -163,6 +163,26 @@ blockquote {
     color: #6b7280;
     text-align: center;
 }
+
+/* Images */
+img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    margin: 0.5em 0;
+}
+
+figure {
+    margin: 1em 0;
+    page-break-inside: avoid;
+}
+
+figcaption {
+    font-size: 9pt;
+    color: #6b7280;
+    text-align: center;
+    margin-top: 0.3em;
+}
 """
 
 
@@ -176,10 +196,26 @@ def _markdown_to_html(markdown_text: str) -> str:
 
     html = markdown_text
 
-    # Escape HTML entities first
-    html = html.replace("&", "&amp;")
-    html = html.replace("<", "&lt;")
-    html = html.replace(">", "&gt;")
+    # Images: ![alt](/path/to/image.jpg) - process before HTML escaping
+    html = re.sub(
+        r'!\[([^\]]*)\]\(([^)]+)\)',
+        r'<img src="\2" alt="\1" style="max-width: 100%; height: auto;">',
+        html
+    )
+
+    # Escape HTML entities (but preserve img tags we just created)
+    # Split on img tags to preserve them
+    parts = re.split(r'(<img[^>]+>)', html)
+    escaped_parts = []
+    for part in parts:
+        if part.startswith('<img'):
+            escaped_parts.append(part)
+        else:
+            part = part.replace("&", "&amp;")
+            part = part.replace("<", "&lt;")
+            part = part.replace(">", "&gt;")
+            escaped_parts.append(part)
+    html = ''.join(escaped_parts)
 
     # Headers
     html = re.sub(r"^### (.+)$", r"<h3>\1</h3>", html, flags=re.MULTILINE)
@@ -283,6 +319,67 @@ def _markdown_to_html(markdown_text: str) -> str:
     return html
 
 
+def _maybe_resize_image(image_bytes: bytes, max_size_bytes: int = 1_000_000, max_width: int = 800) -> bytes:
+    """Resize image if over max_size_bytes."""
+    if len(image_bytes) <= max_size_bytes:
+        return image_bytes
+
+    from PIL import Image
+    from io import BytesIO as PILBytesIO
+
+    img = Image.open(PILBytesIO(image_bytes))
+
+    # Calculate new size maintaining aspect ratio
+    if img.width > max_width:
+        ratio = max_width / img.width
+        new_size = (max_width, int(img.height * ratio))
+        img = img.resize(new_size, Image.LANCZOS)
+
+    # Save as JPEG with reasonable quality
+    output = PILBytesIO()
+    if img.mode in ('RGBA', 'P'):
+        img = img.convert('RGB')
+    img.save(output, format='JPEG', quality=85, optimize=True)
+    return output.getvalue()
+
+
+def _resolve_images_to_base64(html_content: str, session_id: str) -> str:
+    """Replace virtual path image references with base64 data URLs."""
+    import re
+    import base64
+    import mimetypes
+
+    storage = get_storage_service()
+
+    # Match <img src="/extracted/..." or <img src="/attachments/..." or <img src="/workspace/...
+    img_pattern = r'<img\s+([^>]*?)src="(/(?:extracted|attachments|workspace)/[^"]+)"([^>]*?)>'
+
+    def replace_with_base64(match):
+        prefix = match.group(1)
+        virtual_path = match.group(2)
+        suffix = match.group(3)
+
+        try:
+            image_bytes = storage.read(virtual_path, session_id)
+            image_bytes = _maybe_resize_image(image_bytes)
+
+            # Detect mime type from extension
+            mime_type, _ = mimetypes.guess_type(virtual_path)
+            if not mime_type:
+                mime_type = "image/jpeg"
+
+            b64_data = base64.b64encode(image_bytes).decode('utf-8')
+            data_url = f"data:{mime_type};base64,{b64_data}"
+
+            return f'<img {prefix}src="{data_url}"{suffix}>'
+        except FileNotFoundError:
+            return match.group(0)  # Keep original if not found
+        except Exception:
+            return match.group(0)  # Keep original on any error
+
+    return re.sub(img_pattern, replace_with_base64, html_content)
+
+
 @function_tool
 def generate_pdf(
     source_path: str,
@@ -347,6 +444,9 @@ def generate_pdf(
         else:
             # Convert Markdown to HTML
             html_content = _markdown_to_html(source_content)
+
+        # Resolve image paths to base64 data URLs
+        html_content = _resolve_images_to_base64(html_content, session_id)
 
         # Wrap in full HTML document
         full_html = f"""<!DOCTYPE html>
