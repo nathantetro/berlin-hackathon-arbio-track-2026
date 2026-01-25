@@ -1,8 +1,13 @@
 """Email and attachment database operations."""
 
+import hashlib
+
 import polars as pl
 
-from arbie.services.db.base import query
+from arbie.models.base import utc_now
+from arbie.models.email import Attachment
+from arbie.models.enums import AttachmentStatus
+from arbie.services.db.base import insert, query
 
 EMAILS_TABLE = "emails"
 ATTACHMENTS_TABLE = "attachments"

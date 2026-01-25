@@ -5,6 +5,7 @@ __pycache__/
 
 assets/
 docs/
+outputs/
 
 # C extensions
 *.so
