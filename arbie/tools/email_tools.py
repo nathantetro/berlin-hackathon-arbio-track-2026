@@ -81,8 +81,14 @@ def send_email(
     """
     import polars as pl
 
+    print(f"[send_email] Starting send_email tool")
+    print(f"[send_email] to={to}, subject={subject[:50]}..., attachments={attachments}, reply_to_message_id={reply_to_message_id}")
+    print(f"[send_email] body length={len(body)}")
+
     session_id = get_session_context()
+    print(f"[send_email] Session context: {session_id}")
     if not session_id:
+        print("[send_email] ERROR: No session context available")
         return {
             "status": "error",
             "message": "No session context available. Cannot send email.",
@@ -98,10 +104,14 @@ def send_email(
 
     # Auto-thread to most recent inbound email if not explicitly specified
     parent_email = None
+    print(f"[send_email] Auto-threading: reply_to_message_id={reply_to_message_id}")
     if not reply_to_message_id:
+        print(f"[send_email] No reply_to_message_id provided, looking up inbound emails for session")
         emails = get_emails_by_session(session_id)
+        print(f"[send_email] Found {len(emails)} emails in session")
         # Filter to inbound only and sort by timestamp (newest first)
         inbound = [e for e in emails if e.get("direction") == "inbound"]
+        print(f"[send_email] Found {len(inbound)} inbound emails")
         if inbound:
             inbound.sort(
                 key=lambda e: e.get("received_at") or e.get("created_at") or "",
@@ -109,12 +119,17 @@ def send_email(
             )
             parent_email = inbound[0]
             reply_to_message_id = parent_email.get("message_id")
+            print(f"[send_email] Auto-selected parent email: message_id={reply_to_message_id}")
 
     # Look up threading information if we don't already have the parent email
     if reply_to_message_id and not parent_email:
+        print(f"[send_email] Looking up parent email by message_id={reply_to_message_id}")
         emails = query("emails", pl.col("message_id") == reply_to_message_id)
         if emails:
             parent_email = emails[0]
+            print(f"[send_email] Found parent email")
+        else:
+            print(f"[send_email] Parent email not found in database")
 
     # Build threading headers
     in_reply_to = None
@@ -125,20 +140,24 @@ def send_email(
         if parent_email.get("in_reply_to"):
             references.append(parent_email["in_reply_to"])
         references.append(parent_email["message_id"])
+    print(f"[send_email] Threading: in_reply_to={in_reply_to}, references={references}")
 
     # Get session reference code for footer
     session_data = get_session(session_id)
     session_reference = session_data.get("reference_code") if session_data else None
+    print(f"[send_email] Session reference code: {session_reference}")
 
     # Load attachments if provided
     email_attachments = []
     if attachments:
+        print(f"[send_email] Loading {len(attachments)} attachments")
         from arbie.services.storage import get_storage_service
 
         storage = get_storage_service()
         att_list = attachments if isinstance(attachments, list) else [attachments]
         for att_path in att_list:
             try:
+                print(f"[send_email] Loading attachment: {att_path}")
                 # Read file from Azure Blob storage
                 content = storage.read(att_path, session_id)
                 filename = att_path.split("/")[-1]
@@ -155,6 +174,7 @@ def send_email(
                     "txt": "text/plain",
                 }
                 content_type = content_types.get(ext, "application/octet-stream")
+                print(f"[send_email] Attachment loaded: filename={filename}, content_type={content_type}, size={len(content)} bytes")
 
                 email_attachments.append(
                     EmailAttachment(
@@ -164,14 +184,23 @@ def send_email(
                     )
                 )
             except Exception as e:
+                print(f"[send_email] ERROR: Failed to load attachment {att_path}: {e}")
                 return {
                     "status": "error",
                     "message": f"Failed to load attachment {att_path}: {e}",
                 }
+    else:
+        print("[send_email] No attachments to load")
 
     # Send the email
     try:
+        print(f"[send_email] Getting Resend client")
         client = get_resend_client()
+        print(f"[send_email] Sending email via Resend API")
+        print(f"[send_email] Recipients: {recipients}")
+        print(f"[send_email] Subject: {subject}")
+        print(f"[send_email] Body type: {'HTML' if body_html else 'plain text'}")
+        print(f"[send_email] Attachments count: {len(email_attachments)}")
         result = client.send_email_with_retry(
             to=recipients,
             subject=subject,
@@ -182,8 +211,10 @@ def send_email(
             references=references if references else None,
             session_reference=session_reference,
         )
+        print(f"[send_email] Resend API response: message_id={result.message_id}, status={result.status}")
 
         # Store the outbound email in the database
+        print(f"[send_email] Storing outbound email in database")
         now = utc_now()
         email = Email(
             session_id=session_id,
@@ -202,7 +233,9 @@ def send_email(
             updated_at=now,
         )
         insert("emails", email.model_dump())
+        print(f"[send_email] Email stored in database successfully")
 
+        print(f"[send_email] SUCCESS: Email sent successfully")
         return {
             "message_id": result.message_id,
             "status": result.status,
@@ -211,6 +244,9 @@ def send_email(
         }
 
     except Exception as e:
+        import traceback
+        print(f"[send_email] ERROR: Failed to send email: {e}")
+        print(f"[send_email] Traceback: {traceback.format_exc()}")
         return {
             "status": "error",
             "message": f"Failed to send email: {e}",
