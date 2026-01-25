@@ -22,7 +22,5 @@ dependencies = [
     # Data processing (required by arbie.services.email_processor)
     "polars>=1.0.0",
     "pyarrow>=14.0.0",
-    # Tracing
-    "keywordsai-sdk>=0.4.39",
     "mistralai>=1.0.0",
 ]

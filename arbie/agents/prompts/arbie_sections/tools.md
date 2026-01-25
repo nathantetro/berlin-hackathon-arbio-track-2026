@@ -479,30 +479,34 @@ update_session(
 )
 ```
 
-## Sub-Agents (Handoffs)
+## Research Tool
 
-### Research Agent
+### research_compliance()
 
-**Purpose:** Web research for compliance regulations
+**Purpose:** Research short-term rental regulations for a property address
 
-**How to use:** Describe what you need researched, Research Agent handles the search
+**How to use:** Call with the property address and specific research needs. Returns structured findings with source URLs that you can use with `edit_property()`.
+
+**Parameters:**
+- `input`: Describe the property address and what compliance info you need
 
 **Example:**
 ```python
 # When you have property address and need compliance info:
-# "I need to research short-term rental regulations for 123 Beach Drive,
-#  Miami Beach, FL 33139. Please find:
-#  - Required permits and registration
-#  - Occupancy limits
-#  - Tax obligations
-#  - Registration deadlines"
+findings = research_compliance(
+    input="Research short-term rental regulations for 123 Beach Drive, "
+          "Miami Beach, FL 33139. Find required permits, registration, "
+          "occupancy limits, tax obligations, and registration deadlines."
+)
 
-# Research Agent will:
-# - Search for regulations
-# - Extract info from official sources
-# - Return structured findings
+# The tool returns structured findings like:
+# {
+#   "permits": {"required": true, "type": "STR License", "url": "..."},
+#   "taxes": {"rate": "13%", "collection": "platform remits", "url": "..."},
+#   ...
+# }
 
-# You then use the findings:
+# Use the findings to update property:
 edit_property(
     key="compliance:comp_001:status",
     value="compliant",
@@ -512,6 +516,8 @@ edit_property(
     )
 )
 ```
+
+**Note:** This tool runs a specialized Research Agent that performs web searches and returns comprehensive compliance information. Control returns to you after the research is complete, so you can continue processing.
 
 ## Tool Usage Patterns
 

@@ -97,26 +97,34 @@ def send_email(
     body_html = body if is_html else None
 
     # Auto-thread to most recent inbound email if not explicitly specified
+    parent_email = None
     if not reply_to_message_id:
-        recent_inbound = get_emails_by_session(
-            session_id, direction="inbound", limit=1
-        )
-        if recent_inbound:
-            reply_to_message_id = recent_inbound[0].message_id
+        emails = get_emails_by_session(session_id)
+        # Filter to inbound only and sort by timestamp (newest first)
+        inbound = [e for e in emails if e.get("direction") == "inbound"]
+        if inbound:
+            inbound.sort(
+                key=lambda e: e.get("received_at") or e.get("created_at") or "",
+                reverse=True
+            )
+            parent_email = inbound[0]
+            reply_to_message_id = parent_email.get("message_id")
 
-    # Look up threading information
-    in_reply_to = None
-    references = []
-
-    if reply_to_message_id:
-        # Find the email to get threading headers
+    # Look up threading information if we don't already have the parent email
+    if reply_to_message_id and not parent_email:
         emails = query("emails", pl.col("message_id") == reply_to_message_id)
         if emails:
-            in_reply_to = emails[0].get("message_id")
-            # Build references chain
-            if emails[0].get("in_reply_to"):
-                references.append(emails[0]["in_reply_to"])
-            references.append(reply_to_message_id)
+            parent_email = emails[0]
+
+    # Build threading headers
+    in_reply_to = None
+    references = []
+    if parent_email:
+        in_reply_to = parent_email.get("message_id")
+        # Build references chain: include parent's references plus parent's message_id
+        if parent_email.get("in_reply_to"):
+            references.append(parent_email["in_reply_to"])
+        references.append(parent_email["message_id"])
 
     # Get session reference code for footer
     session_data = get_session(session_id)

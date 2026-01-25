@@ -6,12 +6,10 @@ Accepts parameters to process a specific session with context.
 import os
 from pathlib import Path
 
-from agents import Runner
-from agents.tracing import set_trace_processors
+from agents import Runner, set_tracing_export_api_key
 
 import arbie
 from arbie.agents.arbie_agent import arbie_agent
-from arbie.services.keywordsai_tracing import KeywordsAITraceProcessor
 from arbie.services.db.base import init_all_tables
 from arbie.services.db.email import get_attachments_by_session, get_emails_by_session
 from arbie.services.db.session import get_session
@@ -83,31 +81,40 @@ def build_session_context(
     if latest_email:
         context_parts.extend([
             "",
-            "Latest Email:",
-            f"  From: {latest_email.get('from_address', 'unknown')}",
-            f"  Subject: {latest_email.get('subject', 'No subject')}",
+            "## Triggering Email",
+            f"**From:** {latest_email.get('from_address', 'unknown')}",
+            f"**Subject:** {latest_email.get('subject', 'No subject')}",
+            f"**Received:** {latest_email.get('received_at', 'unknown')}",
         ])
         
         # Include attachment info
         from arbie.services.db.email import get_attachments_by_email
         attachments = get_attachments_by_email(latest_email.get("id", ""))
         if attachments:
-            context_parts.append(f"  Attachments: {len(attachments)} file(s)")
+            context_parts.append(f"**Attachments:** {len(attachments)} file(s)")
             for att in attachments[:5]:  # Show first 5
                 filename = att.get("filename", "unknown")
                 content_type = att.get("content_type", "unknown")
                 size_kb = att.get("size_bytes", 0) // 1024
-                context_parts.append(f"    - {filename} ({content_type}, {size_kb}KB)")
+                context_parts.append(f"  - {filename} ({content_type}, {size_kb}KB)")
             if len(attachments) > 5:
-                context_parts.append(f"    - ... and {len(attachments) - 5} more")
+                context_parts.append(f"  - ... and {len(attachments) - 5} more")
         
-        # Include email body content
+        # Include email body content prominently
         body_text = latest_email.get("body_text")
         if body_text:
             context_parts.extend([
                 "",
-                "Email Content:",
+                "### Email Body Content",
+                "```",
                 body_text.strip(),
+                "```",
+            ])
+        else:
+            context_parts.extend([
+                "",
+                "### Email Body Content",
+                "_No text content in email body_",
             ])
 
     return "\n".join(context_parts)
@@ -160,18 +167,10 @@ def main() -> int:
         print("Error: OPENAI_API_KEY environment variable not set")
         return 1
 
-    # Initialize Keywords AI tracing
-    keywordsai_api_key = os.getenv("KEYWORDSAI_API_KEY")
-    if keywordsai_api_key:
-        set_trace_processors([
-            KeywordsAITraceProcessor(
-                api_key=keywordsai_api_key,
-                endpoint="https://api.keywordsai.co/api/openai/v1/traces/ingest",
-            ),
-        ])
-        print("Keywords AI tracing enabled")
-    else:
-        print("Warning: KEYWORDSAI_API_KEY not set, tracing disabled")
+    # Configure OpenAI Agents SDK tracing
+    # Traces are sent to https://platform.openai.com/traces
+    set_tracing_export_api_key(api_key)
+    print("OpenAI Agents SDK tracing enabled")
 
     # Initialize database tables
     init_all_tables()
