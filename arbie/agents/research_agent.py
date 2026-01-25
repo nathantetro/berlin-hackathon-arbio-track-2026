@@ -1,10 +1,13 @@
 """Research Agent - Regulatory compliance specialist.
 
-Handles questions about short-term rental regulations and compliance.
+Handles questions about short-term rental regulations and compliance
+using web search to find current permit, tax, and registration requirements.
 """
 
 from agents import Agent
 from pathlib import Path
+
+from arbie.tools.research_tools import web_search, todo
 
 
 # Load instructions from markdown file
@@ -16,6 +19,6 @@ with open(INSTRUCTIONS_PATH) as f:
 research_agent = Agent(
     name="Research Agent",
     instructions=RESEARCH_AGENT_INSTRUCTIONS,
-    tools=[],  # No tools yet - web search coming in future iteration
-    model="gpt-5.2"
+    tools=[web_search, todo],
+    model="gpt-4o",
 )
