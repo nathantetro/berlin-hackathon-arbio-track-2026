@@ -82,9 +82,10 @@ async def print_stream_event(event: StreamEvent) -> None:
         name = item_event.name
 
         if name == "tool_called":
-            # Tool call initiated
-            tool_name = getattr(item, "name", "unknown")
-            raw_args = getattr(item, "arguments", "{}")
+            # Tool call initiated - access raw_item for tool details
+            raw_item = getattr(item, "raw_item", item)
+            tool_name = getattr(raw_item, "name", "unknown")
+            raw_args = getattr(raw_item, "arguments", "{}")
             formatted_args = _format_args(raw_args)
             print(f"\n{c['cyan']}[Tool Call] {c['bold']}{tool_name}{c['reset']}")
             if formatted_args.strip():

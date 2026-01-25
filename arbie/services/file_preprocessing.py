@@ -18,6 +18,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, unquote
 
 import httpx
 from mistralai import Mistral
@@ -90,6 +91,32 @@ def _extract_room_type(name: str) -> str:
     return re.sub(r'\d+$', '', name)
 
 
+def _extract_filename_from_url(url: str, fallback_index: int) -> str:
+    """Extract filename from URL using proper URL parsing.
+
+    Handles Azure Blob Storage signed URLs with SAS tokens by properly
+    parsing the URL path component and ignoring query parameters.
+
+    Args:
+        url: The URL to extract filename from.
+        fallback_index: Index to use for generating fallback filename.
+
+    Returns:
+        Extracted filename or fallback like 'img_0.jpg'.
+    """
+    try:
+        parsed = urlparse(url)
+        # Get the path component, decode URL encoding
+        path = unquote(parsed.path)
+        # Extract the last path segment
+        filename = path.rstrip('/').split('/')[-1]
+        if filename and '.' in filename:
+            return filename
+    except Exception:
+        pass
+    return f"img_{fallback_index}.jpg"
+
+
 def create_room_records(
     rooms: list[dict[str, Any]],
     property_id: str = "",
@@ -114,11 +141,26 @@ def create_room_records(
         # Extract room_type by stripping trailing digits
         room_type = _extract_room_type(name)
 
-        # Build attachment URLs: /attachments/{filename}
-        attachment_urls = [
-            f"/attachments/{filename}"
-            for filename in room.get("attachments", [])
-        ]
+        # Extract storage paths from attachment URLs
+        # Attachments may be full signed URLs or already storage paths
+        attachment_urls: list[str] = []
+        for attachment in room.get("attachments", []):
+            if attachment.startswith("http"):
+                # Extract storage path from signed URL
+                parsed_url = urlparse(attachment)
+                path_parts = unquote(parsed_url.path).split('/')
+                if 'attachments' in path_parts:
+                    idx = path_parts.index('attachments')
+                    storage_path = '/' + '/'.join(path_parts[idx:])
+                else:
+                    storage_path = f"/attachments/{os.path.basename(parsed_url.path)}"
+                attachment_urls.append(storage_path)
+            elif attachment.startswith("/"):
+                # Already a storage path
+                attachment_urls.append(attachment)
+            else:
+                # Just a filename
+                attachment_urls.append(f"/attachments/{attachment}")
 
         room_data = {
             "id": str(uuid.uuid4()),
@@ -513,13 +555,17 @@ def _process_room_type(
     system_prompt = FILE_PROCESSOR_PROMPT.replace("{{ROOM_TYPE_HINT}}", room_type)
     print(f"  [{room_type}] System prompt length: {len(system_prompt)} chars")
 
-    # Build list of image identifiers
+    # Build stable mapping: simple filename -> full URL
+    # This ensures we can reliably map LLM responses back to original URLs
+    url_mapping: dict[str, str] = {}
     image_ids: list[str] = []
     for idx, url in enumerate(image_urls):
-        # Extract filename from URL or generate one
-        filename = url.split("/")[-1].split("?")[0]
-        if not filename or filename == url:
-            filename = f"img_{idx}.jpg"
+        filename = _extract_filename_from_url(url, idx)
+        # Handle duplicates by appending index
+        if filename in url_mapping:
+            base, ext = os.path.splitext(filename)
+            filename = f"{base}_{idx}{ext}"
+        url_mapping[filename] = url
         image_ids.append(filename)
 
     # Build user message content with images (pass signed URLs directly)
@@ -563,7 +609,7 @@ def _process_room_type(
             if isinstance(rooms, dict):
                 rooms = rooms.get("rooms", [rooms])
 
-            # Map attachment indices back to URLs
+            # Map attachment indices/filenames back to URLs using url_mapping
             for room in rooms:
                 attachments = room.get("attachments", [])
                 # If attachments are indices, map to URLs
@@ -571,20 +617,27 @@ def _process_room_type(
                     room["attachments"] = [
                         image_urls[i] for i in attachments if i < len(image_urls)
                     ]
-                # If attachments are filenames, try to match to URLs
+                # If attachments are filenames, use url_mapping for reliable resolution
                 elif attachments and isinstance(attachments[0], str):
-                    # Keep as-is if they're already URLs, otherwise try to match
-                    matched_urls = []
+                    resolved: list[str] = []
                     for att in attachments:
                         if att.startswith("http"):
-                            matched_urls.append(att)
+                            resolved.append(att)
+                        elif att in url_mapping:
+                            # Direct match in our mapping
+                            resolved.append(url_mapping[att])
                         else:
-                            # Try to find URL containing this filename
-                            for url in image_urls:
-                                if att in url:
-                                    matched_urls.append(url)
+                            # Fuzzy match: find URL containing this filename
+                            matched = False
+                            for fname, full_url in url_mapping.items():
+                                if att in fname or fname in att:
+                                    resolved.append(full_url)
+                                    matched = True
                                     break
-                    room["attachments"] = matched_urls if matched_urls else attachments
+                            if not matched:
+                                # Keep as-is if no match found
+                                resolved.append(att)
+                    room["attachments"] = resolved
 
                 print(f"  [{room_type}] Added room: {room.get('name')} with {len(room.get('objects', []))} objects")
 
@@ -718,9 +771,25 @@ def preprocess_and_classify(
         room_name = room.get("name", "")
         if not room_name:
             continue
-        for attachment_filename in room.get("attachments", []):
-            # LLM returns filenames, prepend /attachments/ to get storage_path
-            storage_path = f"/attachments/{attachment_filename}"
+        for attachment_url in room.get("attachments", []):
+            # Attachments are now full signed URLs - extract storage path
+            if attachment_url.startswith("http"):
+                parsed_url = urlparse(attachment_url)
+                # Path format: /container/session_id/attachments/filename.jpg
+                path_parts = unquote(parsed_url.path).split('/')
+                # Find 'attachments' in path and extract from there
+                if 'attachments' in path_parts:
+                    idx = path_parts.index('attachments')
+                    storage_path = '/' + '/'.join(path_parts[idx:])
+                else:
+                    # Fallback: use basename
+                    storage_path = f"/attachments/{os.path.basename(parsed_url.path)}"
+            else:
+                # Legacy case: already a storage path or filename
+                if attachment_url.startswith("/"):
+                    storage_path = attachment_url
+                else:
+                    storage_path = f"/attachments/{attachment_url}"
             update_attachment_extracted_text(storage_path, room_name)
 
     # Step 4.6: Create room records in database
