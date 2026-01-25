@@ -527,6 +527,300 @@
             height: 18px;
             border: 1px solid;
         }
+
+        /* ===== DATA ACQUISITION MATRIX ===== */
+        .data-matrix {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 25px;
+            align-items: start;
+        }
+
+        @media (max-width: 900px) {
+            .data-matrix {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Circular Progress Gauge */
+        .progress-gauge {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .gauge-container {
+            position: relative;
+            width: 200px;
+            height: 200px;
+        }
+
+        .gauge-ring {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+
+        .gauge-bg {
+            fill: none;
+            stroke: #161b22;
+            stroke-width: 12;
+        }
+
+        .gauge-progress {
+            fill: none;
+            stroke: url(#gaugeGradient);
+            stroke-width: 12;
+            stroke-linecap: round;
+            stroke-dasharray: 502;
+            stroke-dashoffset: 502;
+            transition: stroke-dashoffset 1.5s ease-out;
+            filter: drop-shadow(0 0 8px rgba(123, 237, 159, 0.5));
+        }
+
+        .gauge-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .gauge-percent {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 28px;
+            color: var(--neon-green);
+            text-shadow: 0 0 15px rgba(123, 237, 159, 0.6);
+        }
+
+        .gauge-label {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-top: 5px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .gauge-status {
+            margin-top: 15px;
+            padding: 8px 16px;
+            border: 1px solid;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .gauge-status.low { border-color: #f85149; color: #f85149; }
+        .gauge-status.medium { border-color: var(--neon-yellow); color: var(--neon-yellow); }
+        .gauge-status.high { border-color: var(--neon-cyan); color: var(--neon-cyan); }
+        .gauge-status.complete { border-color: var(--neon-green); color: var(--neon-green); background: rgba(123, 237, 159, 0.1); }
+
+        /* Category Grid */
+        .category-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .category-card {
+            background: var(--darker-bg);
+            border: 1px solid #21262d;
+            padding: 15px;
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .category-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            transition: all 0.3s ease;
+        }
+
+        .category-card:hover {
+            transform: translateY(-2px);
+            border-color: #30363d;
+        }
+
+        .category-card.cyan::before { background: var(--neon-cyan); }
+        .category-card.magenta::before { background: var(--neon-magenta); }
+        .category-card.yellow::before { background: var(--neon-yellow); }
+        .category-card.green::before { background: var(--neon-green); }
+        .category-card.pink::before { background: var(--neon-pink); }
+        .category-card.orange::before { background: var(--neon-orange); }
+
+        .category-card:hover.cyan { border-color: var(--neon-cyan); box-shadow: 0 0 15px rgba(92, 225, 230, 0.2); }
+        .category-card:hover.magenta { border-color: var(--neon-magenta); box-shadow: 0 0 15px rgba(203, 108, 230, 0.2); }
+        .category-card:hover.yellow { border-color: var(--neon-yellow); box-shadow: 0 0 15px rgba(254, 202, 87, 0.2); }
+        .category-card:hover.green { border-color: var(--neon-green); box-shadow: 0 0 15px rgba(123, 237, 159, 0.2); }
+        .category-card:hover.pink { border-color: var(--neon-pink); box-shadow: 0 0 15px rgba(255, 159, 243, 0.2); }
+        .category-card:hover.orange { border-color: var(--neon-orange); box-shadow: 0 0 15px rgba(255, 165, 2, 0.2); }
+
+        .category-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .category-icon {
+            font-size: 20px;
+            width: 30px;
+            text-align: center;
+        }
+
+        .category-name {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            flex: 1;
+            margin-left: 10px;
+        }
+
+        .category-card.cyan .category-name { color: var(--neon-cyan); }
+        .category-card.magenta .category-name { color: var(--neon-magenta); }
+        .category-card.yellow .category-name { color: var(--neon-yellow); }
+        .category-card.green .category-name { color: var(--neon-green); }
+        .category-card.pink .category-name { color: var(--neon-pink); }
+        .category-card.orange .category-name { color: var(--neon-orange); }
+
+        .category-score {
+            font-family: 'VT323', monospace;
+            font-size: 20px;
+            color: #c9d1d9;
+        }
+
+        /* Category Progress Bar */
+        .category-progress {
+            height: 6px;
+            background: #161b22;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .category-progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 1s ease-out;
+            position: relative;
+        }
+
+        .category-card.cyan .category-progress-fill { background: linear-gradient(90deg, var(--neon-cyan), #4dd4d9); }
+        .category-card.magenta .category-progress-fill { background: linear-gradient(90deg, var(--neon-magenta), #d47ce6); }
+        .category-card.yellow .category-progress-fill { background: linear-gradient(90deg, var(--neon-yellow), #ffd666); }
+        .category-card.green .category-progress-fill { background: linear-gradient(90deg, var(--neon-green), #9af5b5); }
+        .category-card.pink .category-progress-fill { background: linear-gradient(90deg, var(--neon-pink), #ffb8f8); }
+        .category-card.orange .category-progress-fill { background: linear-gradient(90deg, var(--neon-orange), #ffb347); }
+
+        /* Field Pills */
+        .field-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .field-pill {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 2px;
+            background: #161b22;
+            color: var(--text-muted);
+            transition: all 0.2s ease;
+        }
+
+        .field-pill.filled {
+            background: rgba(123, 237, 159, 0.15);
+            color: var(--neon-green);
+            border: 1px solid rgba(123, 237, 159, 0.3);
+        }
+
+        .field-pill.missing {
+            background: rgba(248, 81, 73, 0.1);
+            color: #6e7681;
+            border: 1px dashed #30363d;
+        }
+
+        .field-pill.missing::after {
+            content: " ?";
+            opacity: 0.5;
+        }
+
+        /* Animated elements */
+        @keyframes dataStream {
+            0% { opacity: 0.3; }
+            50% { opacity: 1; }
+            100% { opacity: 0.3; }
+        }
+
+        .category-card.incomplete .category-icon {
+            animation: dataStream 2s infinite;
+        }
+
+        /* Expanded card details */
+        .category-details {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .category-card.expanded .category-details {
+            max-height: 200px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed #21262d;
+        }
+
+        /* Achievement unlock style */
+        .achievement-banner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 12px;
+            margin-top: 20px;
+            border: 1px solid var(--neon-green);
+            background: rgba(123, 237, 159, 0.05);
+        }
+
+        .achievement-banner.pending {
+            border-color: var(--neon-yellow);
+            background: rgba(254, 202, 87, 0.05);
+        }
+
+        .achievement-banner.pending .achievement-text {
+            color: var(--neon-yellow);
+        }
+
+        .achievement-icon {
+            font-size: 24px;
+        }
+
+        .achievement-text {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 9px;
+            color: var(--neon-green);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Data pulse animation for active collection */
+        @keyframes dataPulse {
+            0%, 100% { box-shadow: 0 0 5px rgba(92, 225, 230, 0.3); }
+            50% { box-shadow: 0 0 20px rgba(92, 225, 230, 0.6); }
+        }
+
+        .data-matrix-box.collecting {
+            animation: dataPulse 2s infinite;
+        }
     </style>
 </head>
 <body>
@@ -616,27 +910,202 @@
         {% endif %}
 
         {% if session %}
-        <!-- Stats Row -->
-        <div class="neon-box green">
-            <div class="box-title" style="color: var(--neon-green);">SYSTEM STATS</div>
-            <div class="stats-grid">
-                <div class="stat-block">
-                    <div class="stat-number">{{ emails | length }}</div>
-                    <div class="stat-label">Emails</div>
+        <!-- Data Acquisition Matrix -->
+        {% set completeness = (property.completeness_score or 0) * 100 %}
+        {% set location_fields = [property.address_line1, property.city, property.state_province, property.postal_code, property.country] %}
+        {% set location_filled = location_fields | reject('none') | reject('equalto', '') | list | length %}
+        {% set location_total = 5 %}
+        {% set location_pct = (location_filled / location_total * 100) | int %}
+
+        {% set capacity_fields = [property.max_guests, property.bedrooms, property.bathrooms, property.beds] %}
+        {% set capacity_filled = capacity_fields | reject('none') | reject('equalto', '') | list | length %}
+        {% set capacity_total = 4 %}
+        {% set capacity_pct = (capacity_filled / capacity_total * 100) | int %}
+
+        {% set compliance_fields = [property.permit_number, property.permit_expiry, property.tax_id] %}
+        {% set compliance_filled = compliance_fields | reject('none') | reject('equalto', '') | list | length %}
+        {% set compliance_total = 3 %}
+        {% set compliance_pct = (compliance_filled / compliance_total * 100) | int %}
+
+        {% set media_pct = 100 if photos | length > 3 else ((photos | length) / 4 * 100) | int %}
+        {% set rooms_pct = 100 if rooms | length > 2 else ((rooms | length) / 3 * 100) | int %}
+        {% set amenities_pct = 100 if attributes | length > 5 else ((attributes | length) / 6 * 100) | int %}
+
+        <div class="neon-box {% if session.status == 'extracting' %}collecting{% endif %}" style="border-color: var(--neon-cyan);">
+            <div class="box-title" style="color: var(--neon-cyan);">DATA ACQUISITION MATRIX</div>
+
+            <div class="data-matrix">
+                <!-- Circular Progress Gauge -->
+                <div class="progress-gauge">
+                    <div class="gauge-container">
+                        <svg class="gauge-ring" viewBox="0 0 180 180">
+                            <defs>
+                                <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" stop-color="var(--neon-cyan)" />
+                                    <stop offset="50%" stop-color="var(--neon-green)" />
+                                    <stop offset="100%" stop-color="var(--neon-yellow)" />
+                                </linearGradient>
+                            </defs>
+                            <circle class="gauge-bg" cx="90" cy="90" r="80"/>
+                            <circle class="gauge-progress" cx="90" cy="90" r="80"
+                                    data-percent="{{ completeness }}"
+                                    style="stroke-dashoffset: {{ 502 - (502 * completeness / 100) }};"/>
+                        </svg>
+                        <div class="gauge-center">
+                            <div class="gauge-percent">{{ "%.0f" | format(completeness) }}%</div>
+                            <div class="gauge-label">Complete</div>
+                        </div>
+                    </div>
+                    <div class="gauge-status {% if completeness < 25 %}low{% elif completeness < 50 %}medium{% elif completeness < 90 %}high{% else %}complete{% endif %}">
+                        {% if completeness < 25 %}INITIALIZING{% elif completeness < 50 %}ACQUIRING{% elif completeness < 90 %}ALMOST READY{% else %}SYSTEM READY{% endif %}
+                    </div>
                 </div>
-                <div class="stat-block">
-                    <div class="stat-number">{{ rooms | length }}</div>
-                    <div class="stat-label">Rooms</div>
-                </div>
-                <div class="stat-block">
-                    <div class="stat-number">{{ photos | length }}</div>
-                    <div class="stat-label">Photos</div>
-                </div>
-                <div class="stat-block">
-                    <div class="stat-number">{{ "%.0f" | format((property.completeness_score or 0) * 100) }}%</div>
-                    <div class="stat-label">Complete</div>
+
+                <!-- Category Cards -->
+                <div class="category-grid">
+                    <!-- Location -->
+                    <div class="category-card cyan {% if location_pct < 100 %}incomplete{% endif %}" onclick="this.classList.toggle('expanded')">
+                        <div class="category-header">
+                            <span class="category-icon">📍</span>
+                            <span class="category-name">Location</span>
+                            <span class="category-score">{{ location_filled }}/{{ location_total }}</span>
+                        </div>
+                        <div class="category-progress">
+                            <div class="category-progress-fill" style="width: {{ location_pct }}%"></div>
+                        </div>
+                        <div class="field-list">
+                            <span class="field-pill {% if property.address_line1 %}filled{% else %}missing{% endif %}">Address</span>
+                            <span class="field-pill {% if property.city %}filled{% else %}missing{% endif %}">City</span>
+                            <span class="field-pill {% if property.country %}filled{% else %}missing{% endif %}">Country</span>
+                        </div>
+                        <div class="category-details">
+                            <div class="field-list">
+                                <span class="field-pill {% if property.state_province %}filled{% else %}missing{% endif %}">State</span>
+                                <span class="field-pill {% if property.postal_code %}filled{% else %}missing{% endif %}">Postal</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Capacity -->
+                    <div class="category-card magenta {% if capacity_pct < 100 %}incomplete{% endif %}" onclick="this.classList.toggle('expanded')">
+                        <div class="category-header">
+                            <span class="category-icon">🛏️</span>
+                            <span class="category-name">Capacity</span>
+                            <span class="category-score">{{ capacity_filled }}/{{ capacity_total }}</span>
+                        </div>
+                        <div class="category-progress">
+                            <div class="category-progress-fill" style="width: {{ capacity_pct }}%"></div>
+                        </div>
+                        <div class="field-list">
+                            <span class="field-pill {% if property.max_guests %}filled{% else %}missing{% endif %}">Guests</span>
+                            <span class="field-pill {% if property.bedrooms %}filled{% else %}missing{% endif %}">Bedrooms</span>
+                            <span class="field-pill {% if property.bathrooms %}filled{% else %}missing{% endif %}">Baths</span>
+                        </div>
+                        <div class="category-details">
+                            <div class="field-list">
+                                <span class="field-pill {% if property.beds %}filled{% else %}missing{% endif %}">Beds</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Compliance -->
+                    <div class="category-card yellow {% if compliance_pct < 100 %}incomplete{% endif %}" onclick="this.classList.toggle('expanded')">
+                        <div class="category-header">
+                            <span class="category-icon">📋</span>
+                            <span class="category-name">Compliance</span>
+                            <span class="category-score">{{ compliance_filled }}/{{ compliance_total }}</span>
+                        </div>
+                        <div class="category-progress">
+                            <div class="category-progress-fill" style="width: {{ compliance_pct }}%"></div>
+                        </div>
+                        <div class="field-list">
+                            <span class="field-pill {% if property.permit_number %}filled{% else %}missing{% endif %}">Permit</span>
+                            <span class="field-pill {% if property.tax_id %}filled{% else %}missing{% endif %}">Tax ID</span>
+                        </div>
+                        <div class="category-details">
+                            <div class="field-list">
+                                <span class="field-pill {% if property.permit_expiry %}filled{% else %}missing{% endif %}">Expiry</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Media -->
+                    <div class="category-card green {% if photos | length < 4 %}incomplete{% endif %}" onclick="this.classList.toggle('expanded')">
+                        <div class="category-header">
+                            <span class="category-icon">📸</span>
+                            <span class="category-name">Media</span>
+                            <span class="category-score">{{ photos | length }}</span>
+                        </div>
+                        <div class="category-progress">
+                            <div class="category-progress-fill" style="width: {{ media_pct }}%"></div>
+                        </div>
+                        <div class="field-list">
+                            <span class="field-pill {% if photos | length > 0 %}filled{% else %}missing{% endif %}">Photos</span>
+                            <span class="field-pill {% if photos | length >= 4 %}filled{% else %}missing{% endif %}">4+ images</span>
+                        </div>
+                    </div>
+
+                    <!-- Rooms -->
+                    <div class="category-card pink {% if rooms | length < 3 %}incomplete{% endif %}" onclick="this.classList.toggle('expanded')">
+                        <div class="category-header">
+                            <span class="category-icon">🚪</span>
+                            <span class="category-name">Rooms</span>
+                            <span class="category-score">{{ rooms | length }}</span>
+                        </div>
+                        <div class="category-progress">
+                            <div class="category-progress-fill" style="width: {{ rooms_pct }}%"></div>
+                        </div>
+                        <div class="field-list">
+                            {% for room in rooms[:3] %}
+                            <span class="field-pill filled">{{ room.room_type | replace('_', ' ') | title }}</span>
+                            {% endfor %}
+                            {% if rooms | length == 0 %}
+                            <span class="field-pill missing">No rooms</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Amenities -->
+                    <div class="category-card orange {% if attributes | length < 6 %}incomplete{% endif %}" onclick="this.classList.toggle('expanded')">
+                        <div class="category-header">
+                            <span class="category-icon">✨</span>
+                            <span class="category-name">Amenities</span>
+                            <span class="category-score">{{ attributes | length }}</span>
+                        </div>
+                        <div class="category-progress">
+                            <div class="category-progress-fill" style="width: {{ amenities_pct }}%"></div>
+                        </div>
+                        <div class="field-list">
+                            {% for attr in attributes[:3] %}
+                            <span class="field-pill filled">{{ attr.display_name or attr.key | replace('_', ' ') | title }}</span>
+                            {% endfor %}
+                            {% if attributes | length == 0 %}
+                            <span class="field-pill missing">None yet</span>
+                            {% endif %}
+                        </div>
+                        <div class="category-details">
+                            <div class="field-list">
+                                {% for attr in attributes[3:6] %}
+                                <span class="field-pill filled">{{ attr.display_name or attr.key | replace('_', ' ') | title }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            <!-- Achievement Banner -->
+            {% if completeness >= 90 %}
+            <div class="achievement-banner">
+                <span class="achievement-icon">🏆</span>
+                <span class="achievement-text">Property Data Complete - Ready for Validation!</span>
+            </div>
+            {% elif completeness >= 50 %}
+            <div class="achievement-banner pending">
+                <span class="achievement-icon">⚡</span>
+                <span class="achievement-text">Good progress! {{ "%.0f" | format(100 - completeness) }}% more data needed</span>
+            </div>
+            {% endif %}
         </div>
 
         <!-- Session & User Info -->
@@ -872,6 +1341,54 @@
         const input = document.getElementById('reference');
         input.addEventListener('input', function() {
             this.value = this.value.toUpperCase();
+        });
+
+        // Animate the circular gauge on load
+        document.addEventListener('DOMContentLoaded', function() {
+            const gaugeProgress = document.querySelector('.gauge-progress');
+            if (gaugeProgress) {
+                // Start from empty and animate to final value
+                const targetOffset = gaugeProgress.style.strokeDashoffset;
+                gaugeProgress.style.strokeDashoffset = '502';
+
+                setTimeout(() => {
+                    gaugeProgress.style.strokeDashoffset = targetOffset;
+                }, 100);
+            }
+
+            // Animate progress bars
+            const progressBars = document.querySelectorAll('.category-progress-fill');
+            progressBars.forEach((bar, index) => {
+                const targetWidth = bar.style.width;
+                bar.style.width = '0%';
+
+                setTimeout(() => {
+                    bar.style.width = targetWidth;
+                }, 150 + (index * 100));
+            });
+
+            // Animate count numbers
+            const gaugePercent = document.querySelector('.gauge-percent');
+            if (gaugePercent) {
+                const targetValue = parseInt(gaugePercent.textContent);
+                let currentValue = 0;
+                const increment = Math.ceil(targetValue / 30);
+                const timer = setInterval(() => {
+                    currentValue += increment;
+                    if (currentValue >= targetValue) {
+                        currentValue = targetValue;
+                        clearInterval(timer);
+                    }
+                    gaugePercent.textContent = currentValue + '%';
+                }, 30);
+            }
+        });
+
+        // Add hover sound effect simulation (visual feedback)
+        document.querySelectorAll('.category-card').forEach(card => {
+            card.addEventListener('mouseenter', function() {
+                this.style.transition = 'all 0.15s ease';
+            });
         });
     </script>
 </body>

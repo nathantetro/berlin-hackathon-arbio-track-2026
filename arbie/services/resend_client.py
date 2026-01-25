@@ -3,6 +3,7 @@
 Handles email sending via Resend API with Arbio branding.
 """
 
+import html
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,12 +37,16 @@ View your session: {session_url}
 Reference: {reference_code}
 """
 
+    # HTML-escape the URL to prevent issues with email client link wrapping
+    escaped_url = html.escape(session_url)
+    escaped_code = html.escape(reference_code)
+
     html_footer = f"""
 <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
 <p style="font-size: 12px; color: #6b7280; margin: 0; font-family: sans-serif;">
-    <a href="{session_url}" style="color: #6b7280; text-decoration: underline;">View this session on our website</a>
+    <a href="{escaped_url}" style="color: #6b7280; text-decoration: underline;">View this session on our website</a>
     &nbsp;·&nbsp;
-    Reference: <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; color: #6b7280; font-size: 12px;">{reference_code}</code>
+    Reference: <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; color: #6b7280; font-size: 12px;">{escaped_code}</code>
     &nbsp;·&nbsp;
     <span style="color: #6b7280;">Need support? Pay $800 extra</span>
 </p>
