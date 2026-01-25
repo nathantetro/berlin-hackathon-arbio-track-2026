@@ -61,7 +61,8 @@ def send_email(
         subject: Email subject line
         body: Email body (plain text or HTML)
         attachments: Optional list of file paths to attach (from /workspace/ or /outputs/)
-        reply_to_message_id: Optional message ID to reply to (maintains thread)
+        reply_to_message_id: Optional message ID to reply to. If not provided,
+            automatically threads to the most recent inbound email in the session.
 
     Returns:
         SendEmailResult dict with:
@@ -95,7 +96,15 @@ def send_email(
     body_text = None if is_html else body
     body_html = body if is_html else None
 
-    # Look up threading information if reply_to_message_id provided
+    # Auto-thread to most recent inbound email if not explicitly specified
+    if not reply_to_message_id:
+        recent_inbound = get_emails_by_session(
+            session_id, direction="inbound", limit=1
+        )
+        if recent_inbound:
+            reply_to_message_id = recent_inbound[0].message_id
+
+    # Look up threading information
     in_reply_to = None
     references = []
 

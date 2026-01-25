@@ -60,20 +60,18 @@ When initial submission arrives:
 
 ## Email Threading
 
-Always maintain conversation threading:
-```python
-# Get the original email
-emails = fetch_emails(direction="inbound", limit=1)
-original_msg_id = emails[0].message_id
+Email threading is **automatic**. When you call `send_email()`, it automatically threads your reply to the most recent inbound email in the session. 
 
-# Reply in thread
+```python
+# Simple - threading happens automatically
 send_email(
     to="owner@example.com",
     subject="Re: Property Submission",
-    body="...",
-    reply_to_message_id=original_msg_id  # Keeps thread intact
+    body="..."
 )
 ```
+
+Only provide `reply_to_message_id` if you need to reply to a specific older message (rare).
 
 ## Session Status Updates
 
@@ -122,16 +120,14 @@ update_session(
 send_email(
     to="owner@example.com",
     subject="Re: Property Submission - Quick question",
-    body="Hi,\n\nWhat's the WiFi network name? I found the password in your guide.\n\nBest,\nArbie",
-    reply_to_message_id=original_message_id
+    body="Hi,\n\nWhat's the WiFi network name? I found the password in your guide.\n\nCheers,\nArbie"
 )
-# Loop ends here
+# Loop ends here 
 ```
 
 ## Remember
 
 - One turn = One email sent
 - No email = Loop hangs
-- Always use `reply_to_message_id` for threading
 - Update session status before sending email
 - Keep emails conversational and concise

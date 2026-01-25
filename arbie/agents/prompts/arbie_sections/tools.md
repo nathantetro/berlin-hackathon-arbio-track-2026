@@ -365,9 +365,7 @@ original_email.attachments  # List of attachment paths
 
 **Examples:**
 ```python
-# Send follow-up questions (maintain threading)
-emails = fetch_emails(direction="inbound", limit=1)
-
+# Send follow-up questions (threading is automatic)
 send_email(
     to="owner@example.com",
     subject="Re: Property Submission - A few questions",
@@ -382,9 +380,8 @@ I have a few quick questions:
 
 Please reply with the details.
 
-Best,
-Arbie""",
-    reply_to_message_id=emails[0].message_id  # Keep thread intact
+Cheers,
+Arbie"""
 )
 
 # Send completion email with PDF
@@ -399,7 +396,7 @@ I've attached a summary PDF. Please review it and validate:
 
 https://arbie.arbio.com/validate/abc123xyz
 
-Best,
+All the best,
 Arbie""",
     attachments=["outputs/property_summary.pdf"]
 )
@@ -587,12 +584,11 @@ update_session(
     status_reason="Need WiFi network name and pool details"
 )
 
-# Send follow-up
+# Send follow-up 
 send_email(
     to=emails[0].from_address,
     subject="Re: Property Submission",
-    body=f"Hi,\n\nI have a few questions:\n\n{format_questions(missing)}\n\nBest,\nArbie",
-    reply_to_message_id=emails[0].message_id
+    body=f"Hi,\n\nI have a few questions:\n\n{format_questions(missing)}\n\nBest,\nArbie"
 )
 ```
 
