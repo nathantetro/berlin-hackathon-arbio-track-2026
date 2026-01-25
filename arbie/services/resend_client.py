@@ -35,6 +35,7 @@ def build_session_footer(reference_code: str) -> tuple[str, str]:
 ---
 View your session: {session_url}
 Reference: {reference_code}
+Arbie is an AI and can make mistakes.
 """
 
     # HTML-escape the URL to prevent issues with email client link wrapping
@@ -49,6 +50,9 @@ Reference: {reference_code}
     Reference: <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; color: #6b7280; font-size: 12px;">{escaped_code}</code>
     &nbsp;·&nbsp;
     <span style="color: #6b7280;">Need support? Pay $800 extra</span>
+</p>
+<p style="font-size: 12px; color: #6b7280; margin: 8px 0 0 0; font-family: sans-serif;">
+    Arbie is an AI and can make mistakes.
 </p>
 """
 
