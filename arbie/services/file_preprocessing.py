@@ -291,7 +291,7 @@ def _create_attachment_record(
         size_bytes=len(content),
         storage_path=storage_path,
         checksum=checksum,
-        status=AttachmentStatus.PENDING,
+        status=AttachmentStatus.NOT_ANALYZED,
         uploaded_at=now,
         created_at=now,
         updated_at=now,

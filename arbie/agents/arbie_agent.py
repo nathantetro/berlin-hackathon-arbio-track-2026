@@ -10,6 +10,7 @@ from pathlib import Path
 # Import all tools
 from arbie.tools.file_tools import (
     get_session_overview,
+    get_attachment_metadata,
     list_files,
     read_file,
     write_file
@@ -38,6 +39,7 @@ arbie_agent = Agent(
     tools=[
         # File tools
         get_session_overview,
+        get_attachment_metadata,
         list_files,
         read_file,
         write_file,

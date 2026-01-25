@@ -56,8 +56,22 @@ class EmailType(str, Enum):
 
 
 class AttachmentStatus(str, Enum):
-    """Processing status of attachments."""
+    """Processing status of attachments.
 
+    Status meanings:
+    - NOT_ANALYZED: Default initial status. No preprocessing done yet.
+    - PENDING: Preprocessing is queued but not started.
+    - PROCESSING: Preprocessing is in progress.
+    - PROCESSED: Preprocessing complete, metadata available. Agent can use preprocessed data.
+    - FAILED: Preprocessing failed.
+    - UNSUPPORTED: File type not supported for preprocessing.
+
+    Agent behavior:
+    - PROCESSED: Agent can rely on preprocessed data (extracted text, room classifications, objects)
+    - All other statuses: Agent should analyze the file manually using read_file() or analyze_images()
+    """
+
+    NOT_ANALYZED = "not_analyzed"
     PENDING = "pending"
     PROCESSING = "processing"
     PROCESSED = "processed"
