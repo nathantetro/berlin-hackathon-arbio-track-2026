@@ -2,10 +2,11 @@
 
 import polars as pl
 
-from arbie.services.db.base import get_by_id, query
+from arbie.services.db.base import get_by_id, query, query_sorted
 
 PROPERTIES_TABLE = "properties"
 ATTRIBUTES_TABLE = "property_attributes"
+ATTRIBUTE_HISTORY_TABLE = "attribute_history"
 ROOMS_TABLE = "rooms"
 PHOTOS_TABLE = "property_photos"
 
@@ -65,3 +66,30 @@ def get_photos_by_property(property_id: str) -> list[dict]:
 def get_photos_by_room(room_id: str) -> list[dict]:
     """Get all photos for a room."""
     return query(PHOTOS_TABLE, pl.col("room_id") == room_id)
+
+
+# === Attribute History Operations ===
+
+
+def get_attribute_history(attribute_id: str) -> list[dict]:
+    """Get change history for an attribute."""
+    return query_sorted(
+        ATTRIBUTE_HISTORY_TABLE,
+        pl.col("attribute_id") == attribute_id,
+        "changed_at",
+        descending=True
+    )
+
+
+def get_all_attribute_history_by_property(property_id: str) -> list[dict]:
+    """Get all attribute history for a property's attributes."""
+    attrs = get_attributes_by_property(property_id)
+    attr_ids = [a["id"] for a in attrs]
+    if not attr_ids:
+        return []
+    return query_sorted(
+        ATTRIBUTE_HISTORY_TABLE,
+        pl.col("attribute_id").is_in(attr_ids),
+        "changed_at",
+        descending=True
+    )

@@ -7,16 +7,20 @@ import os
 from pathlib import Path
 
 from agents import Runner
+from agents.tracing import set_trace_processors
 
+import arbie
 from arbie.agents.arbie_agent import arbie_agent
+from arbie.services.keywordsai_tracing import KeywordsAITraceProcessor
 from arbie.services.db.base import init_all_tables
 from arbie.services.db.email import get_emails_by_session
 from arbie.services.db.session import get_session
 from arbie.services.tower_session import TowerEmailSession
-from arbie.tools.email_tools import set_session_context
+from arbie.tools.email_tools import set_session_context as set_email_session_context
+from arbie.tools.session_tools import set_session_context as set_session_session_context
 
-# Path to trigger prompts
-PROMPTS_DIR = Path(__file__).parent.parent.parent / "arbie" / "agents" / "prompts" / "triggers"
+# Path to trigger prompts - use arbie module location for Tower compatibility
+PROMPTS_DIR = Path(arbie.__file__).parent / "agents" / "prompts" / "triggers"
 
 
 def load_trigger_prompt(trigger_type: str) -> str:
@@ -55,7 +59,6 @@ def build_session_context(
     emails = get_emails_by_session(session_id)
 
     context_parts = [
-        f"Session ID: {session_id}",
         f"Reference Code: {session.get('reference_code', 'N/A')}",
         f"Status: {session.get('status', 'unknown')}",
         f"Total Emails: {len(emails)}",
@@ -82,9 +85,15 @@ def build_session_context(
             "Latest Email:",
             f"  From: {latest_email.get('from_address', 'unknown')}",
             f"  Subject: {latest_email.get('subject', 'No subject')}",
-            f"  Has Text: {'yes' if latest_email.get('body_text') else 'no'}",
-            f"  Has HTML: {'yes' if latest_email.get('body_html') else 'no'}",
         ])
+        # Include email body content
+        body_text = latest_email.get("body_text")
+        if body_text:
+            context_parts.extend([
+                "",
+                "Email Content:",
+                body_text.strip(),
+            ])
 
     return "\n".join(context_parts)
 
@@ -136,11 +145,25 @@ def main() -> int:
         print("Error: OPENAI_API_KEY environment variable not set")
         return 1
 
+    # Initialize Keywords AI tracing
+    keywordsai_api_key = os.getenv("KEYWORDSAI_API_KEY")
+    if keywordsai_api_key:
+        set_trace_processors([
+            KeywordsAITraceProcessor(
+                api_key=keywordsai_api_key,
+                endpoint="https://api.keywordsai.co/api/openai/v1/traces/ingest",
+            ),
+        ])
+        print("Keywords AI tracing enabled")
+    else:
+        print("Warning: KEYWORDSAI_API_KEY not set, tracing disabled")
+
     # Initialize database tables
     init_all_tables()
 
-    # Set session context for email tools
-    set_session_context(session_id)
+    # Set session context for tools
+    set_email_session_context(session_id)
+    set_session_session_context(session_id)
 
     # Build the agent prompt
     prompt = build_agent_prompt(
@@ -154,7 +177,8 @@ def main() -> int:
     print("Running agent...\n")
 
     # Create session to load conversation history from emails
-    session = TowerEmailSession(session_id)
+    # Exclude the triggering email since it's already in the prompt context
+    session = TowerEmailSession(session_id, exclude_email_id=email_id)
 
     # Run agent synchronously
     try:

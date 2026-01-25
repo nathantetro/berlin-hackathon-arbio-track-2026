@@ -22,13 +22,16 @@ class TowerEmailSession:
     Writing is handled by the send_email tool, so add_items is a no-op.
     """
 
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str, exclude_email_id: str | None = None):
         """Initialize the session.
 
         Args:
             session_id: The session ID to load conversation history for.
+            exclude_email_id: Optional email ID to exclude from history (typically
+                the triggering email, which is already in the prompt context).
         """
         self.session_id = session_id
+        self.exclude_email_id = exclude_email_id
 
     async def get_items(self, limit: int | None = None) -> list[TResponseInputItem]:
         """Retrieve conversation history from the emails table.
@@ -46,6 +49,9 @@ class TowerEmailSession:
 
             items: list[TResponseInputItem] = []
             for email in emails:
+                # Skip the triggering email (it's already in the prompt context)
+                if self.exclude_email_id and email.get("id") == self.exclude_email_id:
+                    continue
                 item = self._email_to_item(email)
                 if item:
                     items.append(item)

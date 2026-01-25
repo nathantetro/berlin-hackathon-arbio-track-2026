@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARBIE // SESSION TERMINAL</title>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --neon-cyan: #5ce1e6;
+            --neon-magenta: #cb6ce6;
+            --neon-green: #7bed9f;
+            --neon-yellow: #feca57;
+            --neon-pink: #ff9ff3;
+            --neon-orange: #ffa502;
+            --dark-bg: #0d1117;
+            --darker-bg: #090c10;
+            --grid-color: #161b22;
+            --text-muted: #8b949e;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: var(--neon-cyan);
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            min-height: 100vh;
+            background-image:
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+            background-size: 20px 20px;
+            overflow-x: hidden;
+        }
+
+        /* Subtle scanline effect */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.03),
+                rgba(0, 0, 0, 0.03) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            z-index: 1000;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* ASCII Header */
+        .header {
+            text-align: center;
+            padding: 30px 0;
+            border-bottom: 3px double var(--neon-magenta);
+            margin-bottom: 30px;
+        }
+
+        .ascii-title {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 11px;
+            color: var(--neon-green);
+            text-shadow: 0 0 8px rgba(123, 237, 159, 0.5);
+            white-space: pre;
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            margin-top: 15px;
+            color: var(--neon-magenta);
+            font-size: 22px;
+            text-shadow: 0 0 8px rgba(203, 108, 230, 0.4);
+            letter-spacing: 6px;
+        }
+
+        /* Neon Box */
+        .neon-box {
+            background: var(--darker-bg);
+            border: 1px solid var(--neon-cyan);
+            box-shadow: 0 0 15px rgba(92, 225, 230, 0.15);
+            padding: 20px;
+            margin-bottom: 20px;
+            position: relative;
+            border-radius: 2px;
+        }
+
+        .neon-box::before {
+            content: "";
+            position: absolute;
+            top: -3px;
+            left: 15px;
+            right: 15px;
+            height: 1px;
+            background: var(--neon-cyan);
+            opacity: 0.6;
+        }
+
+        .neon-box.magenta {
+            border-color: var(--neon-magenta);
+            box-shadow: 0 0 15px rgba(203, 108, 230, 0.15);
+        }
+
+        .neon-box.magenta::before {
+            background: var(--neon-magenta);
+        }
+
+        .neon-box.green {
+            border-color: var(--neon-green);
+            box-shadow: 0 0 15px rgba(123, 237, 159, 0.15);
+        }
+
+        .neon-box.green::before {
+            background: var(--neon-green);
+        }
+
+        .box-title {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 10px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px dashed currentColor;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .box-title::before {
+            content: ">";
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* Search Form */
+        .search-form {
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+        }
+
+        .input-group {
+            flex: 1;
+        }
+
+        .input-label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--neon-yellow);
+            font-size: 14px;
+        }
+
+        .neon-input {
+            width: 100%;
+            padding: 15px;
+            background: var(--darker-bg);
+            border: 1px solid var(--neon-cyan);
+            color: var(--neon-green);
+            font-family: 'VT323', monospace;
+            font-size: 24px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+
+        .neon-input:focus {
+            outline: none;
+            box-shadow: 0 0 10px rgba(92, 225, 230, 0.3);
+            border-color: var(--neon-cyan);
+        }
+
+        .neon-input::placeholder {
+            color: #30363d;
+        }
+
+        .neon-button {
+            padding: 15px 25px;
+            background: transparent;
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .neon-button:hover {
+            background: rgba(123, 237, 159, 0.15);
+            box-shadow: 0 0 15px rgba(123, 237, 159, 0.3);
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            font-family: 'VT323', monospace;
+            font-size: 14px;
+            border: 1px solid;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .status-received { border-color: var(--neon-cyan); color: var(--neon-cyan); }
+        .status-extracting { border-color: var(--neon-yellow); color: var(--neon-yellow); animation: pulse 2s infinite; }
+        .status-awaiting_info { border-color: var(--neon-orange); color: var(--neon-orange); }
+        .status-researching { border-color: var(--neon-magenta); color: var(--neon-magenta); animation: pulse 2s infinite; }
+        .status-ready { border-color: var(--neon-green); color: var(--neon-green); }
+        .status-validated { border-color: var(--neon-green); color: var(--neon-green); background: rgba(123, 237, 159, 0.1); }
+        .status-archived { border-color: #666; color: #666; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        /* Data Display */
+        .data-row {
+            display: flex;
+            margin-bottom: 10px;
+            border-bottom: 1px dotted #21262d;
+            padding-bottom: 10px;
+        }
+
+        .data-label {
+            color: var(--text-muted);
+            width: 140px;
+            flex-shrink: 0;
+            font-size: 16px;
+        }
+
+        .data-label::after {
+            content: " :";
+            opacity: 0.5;
+        }
+
+        .data-value {
+            color: #c9d1d9;
+            flex: 1;
+        }
+
+        .data-value.highlight {
+            color: var(--neon-green);
+        }
+
+        /* Grid Layout */
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .grid-3 { grid-template-columns: 1fr; }
+        }
+
+        /* Stats Blocks - Tetris Style */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        .stat-block {
+            background: var(--darker-bg);
+            border: 1px solid;
+            padding: 15px;
+            text-align: center;
+            position: relative;
+        }
+
+        .stat-block:nth-child(1) { border-color: var(--neon-cyan); }
+        .stat-block:nth-child(2) { border-color: var(--neon-magenta); }
+        .stat-block:nth-child(3) { border-color: var(--neon-yellow); }
+        .stat-block:nth-child(4) { border-color: var(--neon-green); }
+
+        .stat-number {
+            font-family: 'VT323', monospace;
+            font-size: 32px;
+            margin-bottom: 5px;
+        }
+
+        .stat-block:nth-child(1) .stat-number { color: var(--neon-cyan); }
+        .stat-block:nth-child(2) .stat-number { color: var(--neon-magenta); }
+        .stat-block:nth-child(3) .stat-number { color: var(--neon-yellow); }
+        .stat-block:nth-child(4) .stat-number { color: var(--neon-green); }
+
+        .stat-label {
+            font-size: 14px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        /* Property Section */
+        .property-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .property-grid { grid-template-columns: 1fr; }
+        }
+
+        .property-section h3 {
+            color: var(--neon-pink);
+            font-size: 16px;
+            margin-bottom: 15px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid rgba(255, 159, 243, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: normal;
+        }
+
+        /* Attributes */
+        .attr-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 10px;
+        }
+
+        .attr-block {
+            background: var(--darker-bg);
+            border-left: 2px solid var(--neon-magenta);
+            padding: 12px 15px;
+        }
+
+        .attr-key {
+            color: var(--neon-yellow);
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .attr-value {
+            color: #c9d1d9;
+        }
+
+        .attr-category {
+            float: right;
+            font-size: 11px;
+            color: var(--text-muted);
+            background: #161b22;
+            padding: 2px 8px;
+        }
+
+        /* Rooms */
+        .room-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .room-block {
+            background: var(--darker-bg);
+            border: 1px solid var(--neon-yellow);
+            padding: 15px;
+            position: relative;
+        }
+
+        .room-icon {
+            font-size: 24px;
+            margin-right: 10px;
+        }
+
+        .room-name {
+            color: var(--neon-yellow);
+            font-size: 16px;
+        }
+
+        .room-details {
+            color: var(--text-muted);
+            font-size: 15px;
+            margin-top: 8px;
+        }
+
+        /* Email Timeline */
+        .email-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .email-item {
+            background: var(--darker-bg);
+            border-left: 3px solid;
+            padding: 15px 20px;
+            position: relative;
+        }
+
+        .email-item.inbound {
+            border-color: var(--neon-cyan);
+        }
+
+        .email-item.outbound {
+            border-color: var(--neon-green);
+        }
+
+        .email-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .email-from {
+            color: var(--neon-pink);
+        }
+
+        .email-time {
+            color: var(--text-muted);
+            font-size: 15px;
+        }
+
+        .email-subject {
+            color: #c9d1d9;
+            margin-bottom: 5px;
+        }
+
+        .email-preview {
+            color: #6e7681;
+            font-size: 15px;
+        }
+
+        .email-direction {
+            position: absolute;
+            right: 15px;
+            top: 15px;
+            font-size: 12px;
+            padding: 3px 8px;
+            border: 1px solid;
+            opacity: 0.8;
+        }
+
+        .email-direction.in {
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
+
+        .email-direction.out {
+            border-color: var(--neon-green);
+            color: var(--neon-green);
+        }
+
+        /* Error Message */
+        .error-box {
+            background: rgba(248, 81, 73, 0.1);
+            border: 1px solid #f85149;
+            padding: 20px;
+            margin-bottom: 20px;
+            color: #f85149;
+        }
+
+        .error-box::before {
+            content: "[!] ";
+            opacity: 0.7;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-state .ascii-art {
+            font-size: 13px;
+            color: #30363d;
+            margin-bottom: 20px;
+            white-space: pre;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+        }
+
+        /* Decorative corners */
+        .corner-decor {
+            position: fixed;
+            font-family: monospace;
+            font-size: 10px;
+            color: #21262d;
+            z-index: 999;
+        }
+
+        .corner-decor.tl { top: 10px; left: 10px; }
+        .corner-decor.tr { top: 10px; right: 10px; }
+        .corner-decor.bl { bottom: 10px; left: 10px; }
+        .corner-decor.br { bottom: 10px; right: 10px; }
+
+        /* Tetris blocks decoration */
+        .tetris-decor {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            opacity: 0.08;
+            z-index: -1;
+        }
+
+        .tetris-row {
+            display: flex;
+            gap: 5px;
+        }
+
+        .tetris-block {
+            width: 18px;
+            height: 18px;
+            border: 1px solid;
+        }
+    </style>
+</head>
+<body>
+    <!-- Corner decorations -->
+    <div class="corner-decor tl">┌──────────</div>
+    <div class="corner-decor tr">──────────┐</div>
+    <div class="corner-decor bl">└──────────</div>
+    <div class="corner-decor br">──────────┘</div>
+
+    <!-- Tetris decoration -->
+    <div class="tetris-decor">
+        <div class="tetris-row">
+            <div class="tetris-block" style="border-color: var(--neon-cyan)"></div>
+            <div class="tetris-block" style="border-color: var(--neon-cyan)"></div>
+        </div>
+        <div class="tetris-row">
+            <div class="tetris-block" style="border-color: var(--neon-cyan)"></div>
+            <div class="tetris-block" style="border-color: var(--neon-cyan)"></div>
+        </div>
+        <div class="tetris-row" style="margin-left: 25px;">
+            <div class="tetris-block" style="border-color: var(--neon-magenta)"></div>
+            <div class="tetris-block" style="border-color: var(--neon-magenta)"></div>
+            <div class="tetris-block" style="border-color: var(--neon-magenta)"></div>
+        </div>
+        <div class="tetris-row" style="margin-left: 50px;">
+            <div class="tetris-block" style="border-color: var(--neon-magenta)"></div>
+        </div>
+        <div class="tetris-row">
+            <div class="tetris-block" style="border-color: var(--neon-yellow)"></div>
+        </div>
+        <div class="tetris-row">
+            <div class="tetris-block" style="border-color: var(--neon-yellow)"></div>
+        </div>
+        <div class="tetris-row">
+            <div class="tetris-block" style="border-color: var(--neon-yellow)"></div>
+        </div>
+        <div class="tetris-row">
+            <div class="tetris-block" style="border-color: var(--neon-yellow)"></div>
+        </div>
+        <div class="tetris-row" style="margin-left: 25px;">
+            <div class="tetris-block" style="border-color: var(--neon-green)"></div>
+            <div class="tetris-block" style="border-color: var(--neon-green)"></div>
+        </div>
+        <div class="tetris-row">
+            <div class="tetris-block" style="border-color: var(--neon-green)"></div>
+            <div class="tetris-block" style="border-color: var(--neon-green)"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <pre class="ascii-title">
+ █████╗ ██████╗ ██████╗ ██╗███████╗
+██╔══██╗██╔══██╗██╔══██╗██║██╔════╝
+███████║██████╔╝██████╔╝██║█████╗
+██╔══██║██╔══██╗██╔══██╗██║██╔══╝
+██║  ██║██║  ██║██████╔╝██║███████╗
+╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝╚══════╝</pre>
+            <div class="subtitle">SESSION TERMINAL v2.0</div>
+        </header>
+
+        <!-- Search Section -->
+        <div class="neon-box">
+            <div class="box-title">QUERY SESSION DATABASE</div>
+            <form id="search-form" class="search-form">
+                <div class="input-group">
+                    <label for="reference" class="input-label">ENTER REFERENCE CODE_</label>
+                    <input
+                        type="text"
+                        id="reference"
+                        name="reference"
+                        value="{{ reference or '' }}"
+                        placeholder="ARB-2024-XXXX"
+                        class="neon-input"
+                        autocomplete="off"
+                        spellcheck="false"
+                    >
+                </div>
+                <button type="submit" class="neon-button">EXECUTE</button>
+            </form>
+        </div>
+
+        {% if error %}
+        <!-- Error Message -->
+        <div class="error-box">{{ error }}</div>
+        {% endif %}
+
+        {% if session %}
+        <!-- Stats Row -->
+        <div class="neon-box green">
+            <div class="box-title" style="color: var(--neon-green);">SYSTEM STATS</div>
+            <div class="stats-grid">
+                <div class="stat-block">
+                    <div class="stat-number">{{ emails | length }}</div>
+                    <div class="stat-label">Emails</div>
+                </div>
+                <div class="stat-block">
+                    <div class="stat-number">{{ rooms | length }}</div>
+                    <div class="stat-label">Rooms</div>
+                </div>
+                <div class="stat-block">
+                    <div class="stat-number">{{ photos | length }}</div>
+                    <div class="stat-label">Photos</div>
+                </div>
+                <div class="stat-block">
+                    <div class="stat-number">{{ "%.0f" | format((property.completeness_score or 0) * 100) }}%</div>
+                    <div class="stat-label">Complete</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Session & User Info -->
+        <div class="grid-3">
+            <div class="neon-box">
+                <div class="box-title">SESSION DATA</div>
+                <div class="data-row">
+                    <span class="data-label">REF CODE</span>
+                    <span class="data-value highlight">{{ session.reference_code }}</span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">STATUS</span>
+                    <span class="data-value">
+                        <span class="status-badge status-{{ session.status }}">
+                            {{ session.status | replace('_', ' ') }}
+                        </span>
+                    </span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">REASON</span>
+                    <span class="data-value">{{ session.status_reason or 'NULL' }}</span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">LAST PING</span>
+                    <span class="data-value">{{ session.last_activity_at[:19] if session.last_activity_at else 'NULL' }}</span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">FOLLOW UPS</span>
+                    <span class="data-value">{{ session.follow_up_count or 0 }}</span>
+                </div>
+            </div>
+
+            <div class="neon-box magenta">
+                <div class="box-title" style="color: var(--neon-magenta);">USER PROFILE</div>
+                {% if user %}
+                <div class="data-row">
+                    <span class="data-label">NAME</span>
+                    <span class="data-value">{{ user.name or 'UNKNOWN' }}</span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">EMAIL</span>
+                    <span class="data-value highlight">{{ user.email }}</span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">PHONE</span>
+                    <span class="data-value">{{ user.phone or 'NULL' }}</span>
+                </div>
+                {% else %}
+                <div style="color: #666; font-style: italic;">NO USER DATA FOUND</div>
+                {% endif %}
+            </div>
+
+            <div class="neon-box" style="border-color: var(--neon-yellow);">
+                <div class="box-title" style="color: var(--neon-yellow);">PROPERTY STATUS</div>
+                {% if property and property.id %}
+                <div class="data-row">
+                    <span class="data-label">TYPE</span>
+                    <span class="data-value">{{ property.property_type or 'UNSET' }}</span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">STATE</span>
+                    <span class="data-value">{{ property.status or 'DRAFT' }}</span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">PERMIT</span>
+                    <span class="data-value">{{ property.permit_number or 'NONE' }}</span>
+                </div>
+                {% else %}
+                <div style="color: #666; font-style: italic;">NO PROPERTY LINKED</div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if property and property.id %}
+        <!-- Property Details -->
+        <div class="neon-box magenta">
+            <div class="box-title" style="color: var(--neon-magenta);">PROPERTY MATRIX</div>
+            <div class="property-grid">
+                <div class="property-section">
+                    <h3>// Location</h3>
+                    <div class="data-row">
+                        <span class="data-label">ADDRESS</span>
+                        <span class="data-value">{{ property.address_line1 or '---' }}</span>
+                    </div>
+                    {% if property.address_line2 %}
+                    <div class="data-row">
+                        <span class="data-label">LINE 2</span>
+                        <span class="data-value">{{ property.address_line2 }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="data-row">
+                        <span class="data-label">CITY</span>
+                        <span class="data-value">{{ property.city or '---' }}</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">COUNTRY</span>
+                        <span class="data-value">{{ property.country or '---' }}</span>
+                    </div>
+                </div>
+
+                <div class="property-section">
+                    <h3>// Capacity</h3>
+                    <div class="data-row">
+                        <span class="data-label">MAX GUESTS</span>
+                        <span class="data-value highlight">{{ property.max_guests or '---' }}</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">BEDROOMS</span>
+                        <span class="data-value">{{ property.bedrooms or '---' }}</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">BATHROOMS</span>
+                        <span class="data-value">{{ property.bathrooms or '---' }}</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">BEDS</span>
+                        <span class="data-value">{{ property.beds or '---' }}</span>
+                    </div>
+                </div>
+
+                <div class="property-section">
+                    <h3>// Compliance</h3>
+                    <div class="data-row">
+                        <span class="data-label">PERMIT #</span>
+                        <span class="data-value">{{ property.permit_number or '---' }}</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">EXPIRES</span>
+                        <span class="data-value">{{ property.permit_expiry or '---' }}</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">TAX ID</span>
+                        <span class="data-value">{{ property.tax_id or '---' }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Attributes -->
+        {% if attributes %}
+        <div class="neon-box" style="border-color: var(--neon-pink);">
+            <div class="box-title" style="color: var(--neon-pink);">ATTRIBUTE REGISTRY</div>
+            <div class="attr-grid">
+                {% for attr in attributes %}
+                <div class="attr-block">
+                    <span class="attr-category">{{ attr.category }}</span>
+                    <div class="attr-key">{{ attr.display_name or attr.key }}</div>
+                    <div class="attr-value">{{ attr.value_json }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Rooms -->
+        {% if rooms %}
+        <div class="neon-box" style="border-color: var(--neon-yellow);">
+            <div class="box-title" style="color: var(--neon-yellow);">ROOM INVENTORY</div>
+            <div class="room-grid">
+                {% for room in rooms %}
+                <div class="room-block">
+                    <span class="room-icon">{% if room.room_type == 'bedroom' %}▓{% elif room.room_type == 'bathroom' %}░{% elif room.room_type == 'kitchen' %}█{% elif room.room_type == 'living_room' %}▒{% else %}◊{% endif %}</span>
+                    <span class="room-name">{{ room.name or room.room_type | replace('_', ' ') | upper }}</span>
+                    {% if room.bed_count %}
+                    <div class="room-details">BEDS: {{ room.bed_count }}</div>
+                    {% endif %}
+                    {% if room.description %}
+                    <div class="room-details">{{ room.description[:50] }}{% if room.description|length > 50 %}...{% endif %}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
+
+        <!-- Email Timeline -->
+        {% if emails %}
+        <div class="neon-box">
+            <div class="box-title">TRANSMISSION LOG</div>
+            <div class="email-list">
+                {% for email in emails %}
+                <div class="email-item {{ email.direction }}">
+                    <span class="email-direction {{ 'in' if email.direction == 'inbound' else 'out' }}">
+                        {{ 'IN' if email.direction == 'inbound' else 'OUT' }}
+                    </span>
+                    <div class="email-header">
+                        <span class="email-from">
+                            {{ email.from_address if email.direction == 'inbound' else 'ARBIE@SYSTEM' }}
+                        </span>
+                        <span class="email-time">
+                            {{ (email.received_at or email.sent_at or email.created_at)[:16] if (email.received_at or email.sent_at or email.created_at) else '---' }}
+                        </span>
+                    </div>
+                    <div class="email-subject">> {{ email.subject or 'NO SUBJECT' }}</div>
+                    {% if email.body_preview %}
+                    <div class="email-preview">{{ email.body_preview[:120] }}...</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% elif not error and not reference %}
+        <!-- Empty State -->
+        <div class="empty-state">
+            <pre class="ascii-art">
+    ╔═══════════════════════════════════════╗
+    ║                                       ║
+    ║   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   ║
+    ║   ░  AWAITING SESSION QUERY...   ░   ║
+    ║   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   ║
+    ║                                       ║
+    ╚═══════════════════════════════════════╝
+            </pre>
+            <p>ENTER REFERENCE CODE TO ACCESS SESSION DATA</p>
+        </div>
+        {% endif %}
+
+    </div>
+
+    <script>
+        document.getElementById('search-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const ref = document.getElementById('reference').value.trim().toUpperCase();
+            if (ref) {
+                window.location.href = '/session/' + encodeURIComponent(ref);
+            }
+        });
+
+        // Add typing effect to input
+        const input = document.getElementById('reference');
+        input.addEventListener('input', function() {
+            this.value = this.value.toUpperCase();
+        });
+    </script>
+</body>
+</html>

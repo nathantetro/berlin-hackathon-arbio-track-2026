@@ -15,4 +15,12 @@ dependencies = [
     "python-dateutil>=2.9.0",
     "httpx>=0.28.0",
     "msal>=1.32.0",
+    # Azure Blob Storage
+    "azure-storage-blob>=12.20.0",
+    "azure-identity>=1.15.0",
+    # Data processing (required by arbie.services.email_processor)
+    "polars>=1.0.0",
+    "pyarrow>=14.0.0",
+    # Tracing
+    "keywordsai-sdk>=0.4.39",
 ]

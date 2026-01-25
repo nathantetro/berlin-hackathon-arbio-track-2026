@@ -22,6 +22,7 @@ def send_acknowledgment_email(
     to: str,
     original_subject: str,
     in_reply_to: str | None = None,
+    session_reference: str | None = None,
 ) -> None:
     """Send an acknowledgment email for a received submission.
 
@@ -29,6 +30,7 @@ def send_acknowledgment_email(
         to: Recipient email address.
         original_subject: Subject of the original email (will be prefixed with "Re: ").
         in_reply_to: Message-ID of the original email for threading.
+        session_reference: Optional session reference code to include in footer.
     """
     mailer = get_resend_client()
     mailer.send_email(
@@ -37,4 +39,5 @@ def send_acknowledgment_email(
         body_text=ACKNOWLEDGMENT_BODY,
         in_reply_to=in_reply_to,
         references=[in_reply_to] if in_reply_to else None,
+        session_reference=session_reference,
     )

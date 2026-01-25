@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "tower[iceberg]>=0.3.43",
     "fastapi>=0.115.0",
+    "jinja2>=3.1.0",
     "uvicorn[standard]>=0.34.0",
     "httpx>=0.28.0",
     "python-multipart>=0.0.20",
@@ -18,4 +19,8 @@ dependencies = [
     "tavily-python>=0.7.19",
     "weasyprint>=68.0",
     "pillow>=12.1.0",
+    # Azure Blob Storage
+    "azure-storage-blob>=12.20.0",
+    "azure-identity>=1.15.0",
+    "aiohttp>=3.9.0",
 ]
