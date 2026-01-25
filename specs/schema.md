@@ -231,7 +231,7 @@ class Attachment:
     # Processing
     status: AttachmentStatus
     extracted_text: str | None  # OCR/parsed text content
-    extracted_metadata: dict | None  # Structured data extracted
+    extracted_attachments: dict | None  # Structured data extracted
 
     # Timestamps
     uploaded_at: datetime

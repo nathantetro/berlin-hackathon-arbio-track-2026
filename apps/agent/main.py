@@ -13,8 +13,9 @@ import arbie
 from arbie.agents.arbie_agent import arbie_agent
 from arbie.services.keywordsai_tracing import KeywordsAITraceProcessor
 from arbie.services.db.base import init_all_tables
-from arbie.services.db.email import get_emails_by_session
+from arbie.services.db.email import get_attachments_by_session, get_emails_by_session
 from arbie.services.db.session import get_session
+from arbie.services.file_preprocessing import preprocess_and_classify
 from arbie.services.tower_session import TowerEmailSession
 from arbie.tools.email_tools import set_session_context as set_email_session_context
 from arbie.tools.session_tools import set_session_context as set_session_session_context
@@ -173,6 +174,31 @@ def main() -> int:
     )
 
     print(f"\nAgent Prompt:\n{prompt}\n")
+    print("=" * 60)
+
+    # Preprocess attachments (PDFs and images) before agent runs
+    attachments = get_attachments_by_session(session_id)
+    file_paths = [
+        att["storage_path"]
+        for att in attachments
+        if att.get("storage_path")
+    ]
+
+    if file_paths:
+        print(f"Preprocessing {len(file_paths)} attachments...")
+        try:
+            preprocess_result = preprocess_and_classify(
+                file_paths=file_paths,
+                session_id=session_id,
+                email_id=email_id or "",
+            )
+            print(f"Extracted text from {len(preprocess_result['extracted_text'])} PDFs")
+            print(f"Classified {len(preprocess_result['all_image_urls'])} images")
+            print(f"Found {len(preprocess_result['rooms'])} rooms")
+        except Exception as e:
+            print(f"Warning: Preprocessing failed: {e}")
+            # Continue anyway - agent can still work without preprocessing
+
     print("=" * 60)
     print("Running agent...\n")
 
