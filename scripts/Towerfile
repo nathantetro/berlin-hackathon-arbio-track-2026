@@ -1,0 +1,9 @@
+[app]
+name = "arbie-drop-tables"
+script = "./drop_all_tables.py"
+source = [
+    ".",
+    "../arbie",
+]
+description = "Drop all Iceberg tables to reset corrupted schema"
+import_paths = [".."]

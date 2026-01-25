@@ -1,0 +1,1 @@
+# in this file we define the service endpoint that calls the serverless runpod instance to classify the images

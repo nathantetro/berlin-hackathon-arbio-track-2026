@@ -1,0 +1,10 @@
+[project]
+name = "arbie-scripts"
+version = "0.1.0"
+description = "Arbie utility scripts"
+requires-python = ">=3.12"
+dependencies = [
+    "tower[iceberg]>=0.3.43",
+    "polars>=1.0.0",
+    "pyarrow>=14.0.0",
+]
