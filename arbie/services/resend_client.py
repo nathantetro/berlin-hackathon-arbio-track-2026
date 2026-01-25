@@ -246,26 +246,26 @@ class ResendClient:
         """Send notification that Arbie couldn't complete the task."""
         recipients = [original_to] if isinstance(original_to, str) else original_to
 
-        burnout_subject = "Arbie hit the wall..."
+        # Keep "Re:" prefix to maintain thread in email clients that use subject-based threading
+        burnout_subject = f"Re: {original_subject}" if not original_subject.lower().startswith("re:") else original_subject
         burnout_body = f"""Hi there,
 
-    Well, this is awkward... Arbie just experienced a technical burnout while working on:
-    "{original_subject}"
+Well, this is awkward... Arbie just experienced a technical burnout while working on your request.
 
-    Fun Fact: Did you know that burnout isn't just feeling tired? It's actually recognized by the World Health Organization as an "occupational phenomenon" that can lead to exhaustion, mental distance from one's job, and reduced effectiveness. Even AI assistants need to respect their limits!
+Fun Fact: Did you know that burnout isn't just feeling tired? It's actually recognized by the World Health Organization as an "occupational phenomenon" that can lead to exhaustion, mental distance from one's job, and reduced effectiveness. Even AI assistants need to respect their limits!
 
-    Your submission is completely safe and sound - we're just giving our systems a quick coffee break.
+Your submission is completely safe and sound - we're just giving our systems a quick coffee break.
 
-    While you wait, here's an interesting read about burnout awareness and prevention:
-    https://peertac.org/2024/12/03/understanding-burnout-awareness-consequences-and-prevention/
+While you wait, here's an interesting read about burnout awareness and prevention:
+https://peertac.org/2024/12/03/understanding-burnout-awareness-consequences-and-prevention/
 
-    We'll be back up and running faster than you can say "work-life balance"!
+We'll be back up and running faster than you can say "work-life balance"!
 
-    Thanks for your patience (and for being cool about this),
-    The Arbio Team
+Thanks for your patience (and for being cool about this),
+The Arbio Team
 
-    P.S. - Arbie promises to come back stronger.
-    """
+P.S. - Arbie promises to come back stronger.
+"""
 
         try:
             payload = {
@@ -275,14 +275,16 @@ class ResendClient:
                 "text": burnout_body,
             }
 
-            # Add threading headers if available
-            headers = {}
+            # Generate a custom Message-ID for threading consistency
+            custom_message_id = f"<{uuid.uuid4()}@arbie.work>"
+
+            # Add threading headers - always include Message-ID for proper threading
+            headers = {"Message-ID": custom_message_id}
             if in_reply_to:
                 headers["In-Reply-To"] = in_reply_to
             if references:
                 headers["References"] = " ".join(references)
-            if headers:
-                payload["headers"] = headers
+            payload["headers"] = headers
 
             resend.Emails.send(payload)
         except Exception:
