@@ -1108,6 +1108,45 @@
             {% endif %}
         </div>
 
+        <!-- Validation UI -->
+        {% if session.status == 'ready' %}
+        <div class="neon-box green" style="border-width: 2px; text-align: center; padding: 30px; margin-bottom: 30px;">
+            <div class="box-title" style="color: var(--neon-green); justify-content: center;">
+                PROPERTY VALIDATION
+            </div>
+            <p style="color: #c9d1d9; margin: 20px 0; font-size: 20px;">
+                Your property data is complete. Please review the information below and validate.
+            </p>
+            <button id="validate-btn" class="neon-button" style="
+                font-size: 22px;
+                padding: 15px 40px;
+                background: rgba(123, 237, 159, 0.1);
+                border: 2px solid var(--neon-green);
+                color: var(--neon-green);
+                font-family: 'VT323', monospace;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            ">
+                [ VALIDATE PROPERTY ]
+            </button>
+            <p style="color: #666; margin-top: 15px; font-size: 14px;">
+                Something wrong? Just reply to the email from Arbie.
+            </p>
+        </div>
+        {% endif %}
+
+        {% if session.status == 'validated' %}
+        <div class="neon-box green" style="border-width: 2px; text-align: center; padding: 30px; margin-bottom: 30px;">
+            <span style="font-size: 64px; display: block; margin-bottom: 10px;">✓</span>
+            <div style="color: var(--neon-green); font-size: 22px; font-family: 'Press Start 2P', monospace;">
+                PROPERTY VALIDATED
+            </div>
+            <p style="color: #c9d1d9; margin-top: 15px; font-size: 18px;">
+                Your property has been validated successfully.
+            </p>
+        </div>
+        {% endif %}
+
         <!-- Session & User Info -->
         <div class="grid-3">
             <div class="neon-box">
@@ -1390,6 +1429,58 @@
                 this.style.transition = 'all 0.15s ease';
             });
         });
+
+        // Validation button handler
+        const validateBtn = document.getElementById('validate-btn');
+        if (validateBtn) {
+            validateBtn.addEventListener('click', async function() {
+                if (!confirm('Validate this property? This confirms all information is correct.')) {
+                    return;
+                }
+
+                // Visual feedback
+                validateBtn.textContent = '[ VALIDATING... ]';
+                validateBtn.disabled = true;
+                validateBtn.style.opacity = '0.6';
+
+                try {
+                    const response = await fetch('/session/{{ reference }}/validate', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({action: 'validate'})
+                    });
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        validateBtn.textContent = '[ SUCCESS! ]';
+                        validateBtn.style.background = 'rgba(123, 237, 159, 0.3)';
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } else {
+                        alert('Error: ' + (result.detail || 'Unknown error'));
+                        validateBtn.textContent = '[ VALIDATE PROPERTY ]';
+                        validateBtn.disabled = false;
+                        validateBtn.style.opacity = '1';
+                    }
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                    validateBtn.textContent = '[ VALIDATE PROPERTY ]';
+                    validateBtn.disabled = false;
+                    validateBtn.style.opacity = '1';
+                }
+            });
+
+            // Hover effect for validate button
+            validateBtn.addEventListener('mouseenter', function() {
+                this.style.background = 'rgba(123, 237, 159, 0.2)';
+                this.style.boxShadow = '0 0 20px rgba(123, 237, 159, 0.4)';
+            });
+            validateBtn.addEventListener('mouseleave', function() {
+                this.style.background = 'rgba(123, 237, 159, 0.1)';
+                this.style.boxShadow = 'none';
+            });
+        }
     </script>
 </body>
 </html>

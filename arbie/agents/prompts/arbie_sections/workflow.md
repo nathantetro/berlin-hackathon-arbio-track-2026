@@ -246,10 +246,22 @@ edit_property(
 
 ### Path C: Property Complete
 
+**Completion Checklist - verify ALL before transitioning to READY:**
+
+| Category | Requirements |
+|----------|--------------|
+| **Required (ALL)** | address_line1, city, country, max_guests, bedrooms, bathrooms, property_type, at least 1 photo |
+| **Important (MOST)** | WiFi credentials, check-in/out times, at least 3 photos, at least 1 room defined |
+| **Compliance** | Research completed OR explicitly not required for location |
+
 When all required information is collected:
 
 ```python
-# 1. Write summary
+# 1. Get session URL from overview (for validation link)
+overview = get_session_overview()
+session_url = overview["session_metadata"]["session_url"]
+
+# 2. Write summary
 write_file(
     path="drafts/property_summary.md",
     content="""# Property Summary: 123 Beach Drive
@@ -285,31 +297,31 @@ King bed with en-suite bathroom and ocean view.
 """
 )
 
-# 2. Generate PDF
+# 3. Generate PDF
 pdf_path = generate_pdf(
     source_path="drafts/property_summary.md",
     output_path="outputs/property_summary.pdf"
 )
 
-# 3. Update status
+# 4. Update status
 update_session(
     status="ready",
     status_reason="All information collected, property summary generated"
 )
 
-# 4. Send completion email
+# 5. Send completion email with validation URL
 send_email(
     to="owner@example.com",
     subject="Your property is ready for review!",
-    body="""Hi,
+    body=f"""Hi,
 
 Great news! I've finished processing your property at 123 Beach Drive.
 
-I've attached a summary PDF with all the details. Please review it and click the link below to validate:
+I've attached a summary PDF with all the details. Please review and click below to validate:
 
-https://arbie.arbio.com/validate/abc123xyz
+{session_url}
 
-If anything needs correction, you can make changes on that page before validating.
+If anything needs correction, just reply to this email.
 
 Best,
 Arbie""",

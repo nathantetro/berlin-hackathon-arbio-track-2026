@@ -31,11 +31,12 @@ When you need compliance information:
 - The loop ends
 
 ### Scenario 3: Property Complete
-When all required information is collected:
+When all required information is collected (see Completion Checklist in workflow):
+- Get `session_url` from `get_session_overview()["session_metadata"]["session_url"]`
 - Write property summary to workspace
 - Generate PDF via `generate_pdf()`
-- Call `send_email()` with PDF attachment and validation URL
 - Update session status to "ready"
+- Call `send_email()` with PDF attachment and the validation URL from `session_url`
 - The loop ends
 
 ### Scenario 4: Acknowledgment

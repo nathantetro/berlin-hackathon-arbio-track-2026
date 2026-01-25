@@ -18,6 +18,9 @@ from arbie.services.storage import get_storage_service
 # Whitelist of supported file extensions for read_file
 ALLOWED_READ_EXTENSIONS = {".txt", ".md", ".json", ".pdf"}
 
+# Gateway URL for session viewer links (used by agent to build validation URLs)
+GATEWAY_BASE_URL = os.getenv("GATEWAY_BASE_URL", "https://arbie-gateway.apps.tower.dev")
+
 
 # Session context - set by the agent runner
 _current_session_id: str | None = None
@@ -250,6 +253,7 @@ def get_session_overview() -> dict:
         "session_metadata": {
             "status": session.get("status") if session else "unknown",
             "reference_code": session.get("reference_code") if session else None,
+            "session_url": f"{GATEWAY_BASE_URL}/session/{session.get('reference_code')}" if session and session.get("reference_code") else None,
             "created_at": session.get("created_at").isoformat() if session and session.get("created_at") else None,
             "last_activity_at": session.get("last_activity_at").isoformat() if session and session.get("last_activity_at") else None,
         },

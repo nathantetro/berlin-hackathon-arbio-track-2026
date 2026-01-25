@@ -4,19 +4,23 @@ Handles Microsoft Graph webhook notifications and triggers the agent.
 """
 
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import tower
 import uvicorn
-from fastapi import FastAPI, Query, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from arbie.models.enums import EventType
+from arbie.models.session import SessionEvent
 from arbie.services.acknowledgment import send_acknowledgment_email
-from arbie.services.db.base import init_all_tables
+from arbie.services.db.base import init_all_tables, insert
 from arbie.services.db.email import get_emails_by_session
 from arbie.services.db.property import (
     get_attributes_by_property,
@@ -212,6 +216,86 @@ async def api_session_details(reference: str):
         "photos": photos,
         "emails": emails,
     }
+
+
+# --- Session Validation ---
+
+
+class ValidateRequest(BaseModel):
+    """Request body for validation endpoint."""
+
+    action: str  # "validate"
+
+
+def send_validation_confirmation_email(session: dict, user_email: str) -> None:
+    """Send confirmation email after owner validates property."""
+    from arbie.services.resend_client import get_resend_client
+
+    client = get_resend_client()
+    client.send_email_with_retry(
+        to=[user_email],
+        subject=f"Property Validated - {session['reference_code']}",
+        body_text=f"""Hi,
+
+Your property has been validated successfully!
+
+Reference: {session['reference_code']}
+
+We'll be in touch with next steps.
+
+Best,
+The Arbio Team""",
+        session_reference=session["reference_code"],
+    )
+
+
+@app.post("/session/{reference}/validate")
+async def validate_session(reference: str, request: ValidateRequest):
+    """Handle property validation from owner."""
+    # Look up session by reference code
+    session = get_session_by_reference(reference.upper())
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{reference}' not found")
+
+    # Only allow validation when status is "ready"
+    if session.get("status") != "ready":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Session is not ready for validation. Current status: {session.get('status')}",
+        )
+
+    # Validate action
+    if request.action != "validate":
+        raise HTTPException(status_code=400, detail=f"Invalid action: {request.action}")
+
+    # Transition to VALIDATED
+    now = datetime.now(timezone.utc)
+    session["status"] = "validated"
+    session["status_reason"] = "Owner validated property data"
+    session["completed_at"] = now
+    session["updated_at"] = now
+
+    # Save to database
+    insert("sessions", session)
+
+    # Record VALIDATION_COMPLETED event
+    event = SessionEvent(
+        session_id=session["id"],
+        event_type=EventType.VALIDATION_COMPLETED,
+        timestamp=now,
+        data=json.dumps({"validated_by": "owner"}),
+    )
+    insert("session_events", event.model_dump())
+
+    # Send confirmation email
+    user = get_user(session.get("user_id", "")) if session.get("user_id") else None
+    if user and user.get("email"):
+        try:
+            send_validation_confirmation_email(session, user["email"])
+        except Exception as e:
+            print(f"Failed to send validation confirmation email: {e}")
+
+    return {"status": "success", "message": "Property validated successfully"}
 
 
 # --- Subscription Management ---
