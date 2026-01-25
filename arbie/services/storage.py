@@ -14,12 +14,19 @@ import asyncio
 import io
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import BinaryIO
 
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
-from azure.storage.blob import BlobServiceClient, ContainerClient, ContentSettings
+from azure.storage.blob import (
+    BlobServiceClient,
+    ContainerClient,
+    ContentSettings,
+    BlobSasPermissions,
+    UserDelegationKey,
+    generate_blob_sas,
+)
 from azure.storage.blob.aio import BlobServiceClient as AsyncBlobServiceClient
 from azure.core.exceptions import ResourceNotFoundError
 
@@ -426,6 +433,74 @@ class StorageService:
             )
         except ResourceNotFoundError:
             raise FileNotFoundError(f"File not found: {virtual_path}")
+
+    def _get_user_delegation_key(self, expires_in: timedelta) -> UserDelegationKey:
+        """Get a user delegation key for signing SAS tokens.
+
+        Args:
+            expires_in: How long the key should be valid for.
+
+        Returns:
+            UserDelegationKey for signing SAS tokens.
+        """
+        key_start_time = datetime.utcnow()
+        key_expiry_time = key_start_time + expires_in
+
+        return self.client.get_user_delegation_key(
+            key_start_time=key_start_time,
+            key_expiry_time=key_expiry_time,
+        )
+
+    def get_signed_url(
+        self,
+        virtual_path: str,
+        session_id: str,
+        expires_in: timedelta = timedelta(hours=1),
+        permissions: BlobSasPermissions | None = None,
+    ) -> str:
+        """Generate a signed URL for public access to a file.
+
+        Args:
+            virtual_path: Virtual path to the file.
+            session_id: Session ID for scoping.
+            expires_in: How long the URL should be valid (default: 1 hour).
+            permissions: SAS permissions (default: read-only).
+
+        Returns:
+            Signed URL that provides public access to the file.
+
+        Raises:
+            FileNotFoundError: If file doesn't exist.
+        """
+        blob_path = self._virtual_to_blob_path(virtual_path, session_id)
+        blob_client = self.container.get_blob_client(blob_path)
+
+        # Verify file exists
+        if not blob_client.exists():
+            raise FileNotFoundError(f"File not found: {virtual_path}")
+
+        # Default to read-only permissions
+        if permissions is None:
+            permissions = BlobSasPermissions(read=True)
+
+        # Get user delegation key
+        user_delegation_key = self._get_user_delegation_key(expires_in)
+
+        # Generate SAS token
+        start_time = datetime.utcnow()
+        expiry_time = start_time + expires_in
+
+        sas_token = generate_blob_sas(
+            account_name=self.account_name,
+            container_name=CONTAINER_NAME,
+            blob_name=blob_path,
+            user_delegation_key=user_delegation_key,
+            permission=permissions,
+            expiry=expiry_time,
+            start=start_time,
+        )
+
+        return f"{blob_client.url}?{sas_token}"
 
     async def close(self):
         """Close async client connections."""

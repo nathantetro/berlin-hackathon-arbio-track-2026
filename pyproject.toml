@@ -22,4 +22,9 @@ dependencies = [
     # Azure Blob Storage
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.15.0",
+    # Mistral AI
+    "mistralai>=1.0.0",
+    # Data processing
+    "polars>=1.0.0",
+    "pyarrow>=15.0.0",
 ]
