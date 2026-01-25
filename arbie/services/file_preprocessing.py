@@ -13,7 +13,9 @@ import hashlib
 import json
 import os
 import re
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -488,72 +490,60 @@ def categorize_images_by_room(
     return categorized
 
 
-def extract_room_metadata(
-    categorized_images: dict[str, list[str]],
+def _process_room_type(
+    room_type: str,
+    image_urls: list[str],
+    max_retries: int = 2,
+    base_delay: float = 1.0,
 ) -> list[dict[str, Any]]:
-    """Extract metadata for each room category using OpenAI Vision API.
-
-    For each room type category with images, this function:
-    1. Sends all images to OpenAI with the file_processor prompt
-    2. The LLM clusters images into distinct physical rooms
-    3. Extracts visible objects/amenities for each room
+    """Process a single room type with OpenAI Vision API (with retry).
 
     Args:
-        categorized_images: Dict mapping room types to lists of image URLs.
-            Example: {'bedroom': ['url1', 'url2'], 'kitchen': ['url3']}
+        room_type: The room category (e.g., 'bedroom', 'kitchen').
+        image_urls: List of image URLs to analyze.
+        max_retries: Number of retry attempts on failure.
+        base_delay: Base delay in seconds for exponential backoff.
 
     Returns:
-        List of room metadata dicts. Each dict has:
-            - 'name': Room identifier (e.g., 'bedroom1', 'bedroom2')
-            - 'objects': List of visible objects/amenities
-            - 'attachments': List of image URLs belonging to this room
+        List of room dicts or empty list on failure.
     """
-    print("\n=== extract_room_metadata START ===")
-    print(f"Categories received: {list(categorized_images.keys())}")
-    for k, v in categorized_images.items():
-        print(f"  {k}: {len(v)} images")
+    print(f"\n--- Processing {room_type} ({len(image_urls)} images) ---")
 
-    all_rooms: list[dict[str, Any]] = []
-    openai_client = OpenAI()
+    # Build system prompt with room type hint
+    system_prompt = FILE_PROCESSOR_PROMPT.replace("{{ROOM_TYPE_HINT}}", room_type)
+    print(f"  [{room_type}] System prompt length: {len(system_prompt)} chars")
 
-    for room_type, image_urls in categorized_images.items():
-        # Skip empty categories and documents
-        if not image_urls or room_type == "document":
-            continue
+    # Build list of image identifiers
+    image_ids: list[str] = []
+    for idx, url in enumerate(image_urls):
+        # Extract filename from URL or generate one
+        filename = url.split("/")[-1].split("?")[0]
+        if not filename or filename == url:
+            filename = f"img_{idx}.jpg"
+        image_ids.append(filename)
 
-        print(f"\n--- Processing {room_type} ({len(image_urls)} images) ---")
+    # Build user message content with images (pass signed URLs directly)
+    user_content: list[dict[str, Any]] = [
+        {"type": "text", "text": f"Analyze these {room_type} images. Image identifiers in order: {image_ids}"}
+    ]
 
-        # Build system prompt with room type hint
-        system_prompt = FILE_PROCESSOR_PROMPT.replace("{{ROOM_TYPE_HINT}}", room_type)
-        print(f"System prompt length: {len(system_prompt)} chars")
+    for idx, url in enumerate(image_urls):
+        print(f"  [{room_type}] Adding image {idx + 1}/{len(image_urls)} ({image_ids[idx]}): {url[:60]}...")
+        user_content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": url,
+                "detail": "low",
+            }
+        })
 
-        # Build list of image identifiers
-        image_ids: list[str] = []
-        for idx, url in enumerate(image_urls):
-            # Extract filename from URL or generate one
-            filename = url.split("/")[-1].split("?")[0]
-            if not filename or filename == url:
-                filename = f"img_{idx}.jpg"
-            image_ids.append(filename)
-
-        # Build user message content with images (pass signed URLs directly)
-        user_content: list[dict[str, Any]] = [
-            {"type": "text", "text": f"Analyze these {room_type} images. Image identifiers in order: {image_ids}"}
-        ]
-
-        for idx, url in enumerate(image_urls):
-            print(f"  Adding image {idx + 1}/{len(image_urls)} ({image_ids[idx]}): {url[:60]}...")
-            user_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": url,
-                    "detail": "low",
-                }
-            })
-
-        # Call OpenAI Vision API
-        print(f"  Calling OpenAI API with {len(user_content) - 1} images...")
+    # Retry loop with exponential backoff
+    for attempt in range(max_retries + 1):
         try:
+            # Fresh client per call (thread-safe)
+            openai_client = OpenAI()
+
+            print(f"  [{room_type}] Calling OpenAI API with {len(user_content) - 1} images (attempt {attempt + 1}/{max_retries + 1})...")
             response = openai_client.chat.completions.create(
                 model="gpt-5.2",
                 messages=[
@@ -565,8 +555,8 @@ def extract_room_metadata(
             )
 
             result_text = response.choices[0].message.content or "[]"
-            print(f"  Response received: {len(result_text)} chars")
-            print(f"  Raw response: {result_text[:500]}...")
+            print(f"  [{room_type}] Response received: {len(result_text)} chars")
+            print(f"  [{room_type}] Raw response: {result_text[:500]}...")
             rooms = json.loads(result_text)
 
             # Handle both array and object responses
@@ -596,13 +586,79 @@ def extract_room_metadata(
                                     break
                     room["attachments"] = matched_urls if matched_urls else attachments
 
-                all_rooms.append(room)
-                print(f"  Added room: {room.get('name')} with {len(room.get('objects', []))} objects")
+                print(f"  [{room_type}] Added room: {room.get('name')} with {len(room.get('objects', []))} objects")
+
+            return rooms
 
         except Exception as e:
-            print(f"  ERROR for {room_type}: {e}")
-            import traceback
-            traceback.print_exc()
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)
+                print(f"  [{room_type}] Retry {attempt + 1}/{max_retries} after {delay}s...")
+                time.sleep(delay)
+            else:
+                print(f"  [{room_type}] ERROR after {max_retries + 1} attempts: {e}")
+                import traceback
+                traceback.print_exc()
+                return []
+
+    return []
+
+
+def extract_room_metadata(
+    categorized_images: dict[str, list[str]],
+    max_workers: int = 3,
+    max_retries: int = 2,
+    base_delay: float = 1.0,
+) -> list[dict[str, Any]]:
+    """Extract metadata for each room category using OpenAI Vision API.
+
+    For each room type category with images, this function:
+    1. Sends all images to OpenAI with the file_processor prompt
+    2. The LLM clusters images into distinct physical rooms
+    3. Extracts visible objects/amenities for each room
+
+    Processes room types in parallel with rate limiting via max_workers.
+
+    Args:
+        categorized_images: Dict mapping room types to lists of image URLs.
+            Example: {'bedroom': ['url1', 'url2'], 'kitchen': ['url3']}
+        max_workers: Maximum concurrent API calls (default 3 for rate limiting).
+        max_retries: Number of retry attempts per room type on failure.
+        base_delay: Base delay in seconds for exponential backoff.
+
+    Returns:
+        List of room metadata dicts. Each dict has:
+            - 'name': Room identifier (e.g., 'bedroom1', 'bedroom2')
+            - 'objects': List of visible objects/amenities
+            - 'attachments': List of image URLs belonging to this room
+    """
+    print("\n=== extract_room_metadata START ===")
+    print(f"Categories received: {list(categorized_images.keys())}")
+    for k, v in categorized_images.items():
+        print(f"  {k}: {len(v)} images")
+
+    # Filter to non-empty, non-document categories
+    tasks = [
+        (room_type, urls)
+        for room_type, urls in categorized_images.items()
+        if urls and room_type != "document"
+    ]
+
+    print(f"Processing {len(tasks)} room types with max_workers={max_workers}")
+
+    all_rooms: list[dict[str, Any]] = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_process_room_type, rt, urls, max_retries, base_delay): rt
+            for rt, urls in tasks
+        }
+
+        for future in as_completed(futures):
+            room_type = futures[future]
+            rooms = future.result()  # Already handles exceptions internally
+            all_rooms.extend(rooms)
+            print(f"  Completed {room_type}: {len(rooms)} rooms")
 
     print(f"\n=== extract_room_metadata DONE: {len(all_rooms)} rooms extracted ===\n")
     return all_rooms
