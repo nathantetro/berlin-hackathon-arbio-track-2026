@@ -3,6 +3,7 @@
 Accepts parameters to process a specific session with context.
 """
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from arbie.services.db.email import get_attachments_by_session, get_emails_by_se
 from arbie.services.db.session import get_session
 from arbie.services.file_preprocessing import preprocess_and_classify
 from arbie.services.tower_session import TowerEmailSession
+from arbie.services.streaming import print_stream_event
 from arbie.tools.email_tools import set_session_context as set_email_session_context
 from arbie.tools.session_tools import set_session_context as set_session_session_context
 
@@ -143,6 +145,31 @@ def build_agent_prompt(
     return prompt_template.replace("{{context}}", context)
 
 
+async def run_agent_streamed(
+    prompt: str,
+    session: TowerEmailSession,
+) -> str:
+    """Run the agent with streaming, printing events to console.
+
+    Args:
+        prompt: The prompt to send to the agent.
+        session: The Tower email session for context.
+
+    Returns:
+        The final output from the agent.
+    """
+    result = Runner.run_streamed(
+        starting_agent=arbie_agent,
+        input=prompt,
+        session=session,
+    )
+
+    async for event in result.stream_events():
+        await print_stream_event(event)
+
+    return result.final_output
+
+
 def main() -> int:
     """Main entry point for Arbie agent runner."""
     # Get parameters from environment (Tower passes them this way)
@@ -213,24 +240,25 @@ def main() -> int:
             # Continue anyway - agent can still work without preprocessing
 
     print("=" * 60)
-    print("Running agent...\n")
+    print("Running agent with streaming...\n")
 
     # Create session to load conversation history from emails
     # Exclude the triggering email since it's already in the prompt context
     session = TowerEmailSession(session_id, exclude_email_id=email_id)
 
-    # Run agent synchronously
+    # Run agent with streaming
     try:
-        result = Runner.run_sync(
-            starting_agent=arbie_agent,
-            input=prompt,
-            session=session,
+        final_output = asyncio.run(
+            run_agent_streamed(
+                prompt=prompt,
+                session=session,
+            )
         )
 
         print("\n" + "=" * 60)
         print("Agent Response:")
         print("=" * 60)
-        print(result.final_output)
+        print(final_output)
         print("\n" + "=" * 60)
 
         return 0
