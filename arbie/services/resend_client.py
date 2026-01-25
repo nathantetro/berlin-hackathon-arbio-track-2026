@@ -5,6 +5,7 @@ Handles email sending via Resend API with Arbio branding.
 
 import html
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -148,14 +149,17 @@ class ResendClient:
         if body_html:
             payload["html"] = body_html
 
-        # Set threading headers
-        headers = {}
+        # Generate a custom Message-ID before sending so we can set it on the email
+        # and store the same value in our database for threading consistency
+        custom_message_id = f"<{uuid.uuid4()}@arbie.work>"
+
+        # Set threading headers including our custom Message-ID
+        headers = {"Message-ID": custom_message_id}
         if in_reply_to:
             headers["In-Reply-To"] = in_reply_to
         if references:
             headers["References"] = " ".join(references)
-        if headers:
-            payload["headers"] = headers
+        payload["headers"] = headers
 
         # Add attachments
         if attachments:
@@ -171,8 +175,9 @@ class ResendClient:
         # Send email
         response = resend.Emails.send(payload)
 
-        # Parse response
-        message_id = response.get("id", "") if isinstance(response, dict) else ""
+        # Use our custom Message-ID (which is set on the actual email header)
+        # This ensures replies from recipients will have In-Reply-To matching our stored value
+        message_id = custom_message_id
 
         return SendResult(
             message_id=message_id,
