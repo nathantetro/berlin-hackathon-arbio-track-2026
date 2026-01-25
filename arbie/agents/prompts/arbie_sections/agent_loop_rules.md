@@ -58,21 +58,6 @@ When initial submission arrives:
 - Extract data → Research regulations → `send_email()` with completion notice → Loop ends
 - Receive submission → Quick review → `send_email()` acknowledgment → Loop ends
 
-## Email Threading
-
-Email threading is **automatic**. When you call `send_email()`, it automatically threads your reply to the most recent inbound email in the session. 
-
-```python
-# Simple - threading happens automatically
-send_email(
-    to="owner@example.com",
-    subject="Re: Property Submission",
-    body="..."
-)
-```
-
-Only provide `reply_to_message_id` if you need to reply to a specific older message (rare).
-
 ## Session Status Updates
 
 Update session status BEFORE sending the final email of your turn:
@@ -125,7 +110,27 @@ send_email(
 # Loop ends here 
 ```
 
+## REMEMBER: Email = Termination
+
+**When you send an email, your turn IMMEDIATELY ends. You cannot do anything after.**
+
+**NEVER write:**
+- "I'll start working on the research now..."
+- "I'll begin extracting the property details..."
+- "I'll update the property information next..."
+- "Let me process this and get back to you..."
+
+These phrases imply future work, but **you have no future after `send_email()`**.
+Instead do the work first, then finish your turn with an email.
+
 ## Remember
+
+- One turn = One email sent
+- No email = Loop hangs
+- Email sent = Turn ends instantly
+- Update session status BEFORE sending email
+- Use past/present perfect tense in emails (never future tense)
+- Keep emails conversational and concise
 
 - One turn = One email sent
 - No email = Loop hangs
