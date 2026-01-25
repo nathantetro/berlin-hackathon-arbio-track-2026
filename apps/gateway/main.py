@@ -472,18 +472,18 @@ async def process_email_notification(message_id: str) -> None:
         message = await graph.get_message(message_id)
         print(f"Fetched message: {message.subject} from {message.from_address.address}")
 
-        # Fetch attachments if any
+        # Fetch attachments (always check - hasAttachments can be False for inline-only emails)
         attachments = []
-        if message.has_attachments:
-            att_list = await graph.list_attachments(message_id)
-            for att in att_list:
-                # Skip small inline images (likely signatures/icons) but keep larger ones (real photos)
-                # Microsoft Graph marks many legitimate attachments as "inline"
-                if att.is_inline and att.size < 10_000:  # Skip only if inline AND < 10KB
-                    print(f"  Skipping small inline image: {att.name} ({att.size} bytes)")
-                    continue
-                content = await graph.get_attachment(message_id, att.id)
-                attachments.append((att, content))
+        att_list = await graph.list_attachments(message_id)
+        for att in att_list:
+            # Skip small inline images (likely signatures/icons) but keep larger ones (real photos)
+            # Microsoft Graph marks many legitimate attachments as "inline"
+            if att.is_inline and att.size < 10_000:  # Skip only if inline AND < 10KB
+                print(f"  Skipping small inline image: {att.name} ({att.size} bytes)")
+                continue
+            content = await graph.get_attachment(message_id, att.id)
+            attachments.append((att, content))
+        if attachments:
             print(f"Fetched {len(attachments)} attachments")
 
         # Process the email (creates/finds session)
