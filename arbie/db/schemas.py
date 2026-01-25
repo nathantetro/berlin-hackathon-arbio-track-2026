@@ -95,7 +95,6 @@ ATTACHMENTS_SCHEMA = pa.schema([
     ("extracted_metadata", pa.list_(pa.string())),  # List of attachment IDs
     ("uploaded_at", TIMESTAMP_TYPE),
     ("processed_at", TIMESTAMP_TYPE),
-    ("room_name", pa.string()),
     ("created_at", TIMESTAMP_TYPE),
     ("updated_at", TIMESTAMP_TYPE),
 ])
@@ -194,14 +193,7 @@ ROOMS_SCHEMA = pa.schema([
     ("floor", pa.int32()),
     ("description", pa.string()),
     ("objects_detected", pa.list_(pa.string())),
-    ("amenities", pa.list_(pa.string())),
-    # Bedroom fields
-    ("bed_count", pa.int32()),
-    ("bed_types", pa.list_(pa.string())),
-    # Bathroom fields
-    ("has_shower", pa.bool_()),
-    ("has_bathtub", pa.bool_()),
-    ("is_ensuite", pa.bool_()),
+    ("attachments", pa.list_(pa.string())),  # Attachment URLs
     # Matching
     ("visual_signature", pa.string()),
     ("confidence", pa.float32()),

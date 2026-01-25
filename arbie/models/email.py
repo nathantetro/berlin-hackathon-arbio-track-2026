@@ -41,4 +41,3 @@ class Attachment(BaseEntity):
     extracted_metadata: list[str] = Field(default_factory=list, description="IDs of attachments extracted from this file")
     uploaded_at: datetime = Field(...)
     processed_at: datetime | None = Field(default=None)
-    room_name: str | None = Field(default=None, description="Room identifier from classification")

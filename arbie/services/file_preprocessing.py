@@ -12,6 +12,8 @@ import base64
 import hashlib
 import json
 import os
+import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +25,7 @@ from arbie.models.base import utc_now
 from arbie.models.email import Attachment
 from arbie.models.enums import AttachmentStatus
 from arbie.services.db.base import insert
-from arbie.services.db.email import update_attachment_after_extraction, update_attachment_room_name
+from arbie.services.db.email import update_attachment_after_extraction, update_attachment_extracted_text
 from arbie.services.storage import (
     get_storage_service,
     StorageService,
@@ -73,6 +75,67 @@ CLIP_LABELS = [
 
 # Mapping from CLIP label back to room type
 CLIP_LABEL_TO_ROOM = dict(zip(CLIP_LABELS, ROOM_TYPES))
+
+
+def _extract_room_type(name: str) -> str:
+    """Extract room type from name by removing trailing digits.
+
+    Examples:
+        "bedroom1" -> "bedroom"
+        "kitchen2" -> "kitchen"
+        "living_room1" -> "living_room"
+    """
+    return re.sub(r'\d+$', '', name)
+
+
+def create_room_records(
+    rooms: list[dict[str, Any]],
+    property_id: str = "",
+) -> list[str]:
+    """Create room records in the database from classification results.
+
+    Args:
+        rooms: List of room dicts from extract_room_metadata().
+        property_id: FK to Property (can be empty, linked later).
+
+    Returns:
+        List of created room IDs.
+    """
+    room_ids: list[str] = []
+    now = utc_now()
+
+    for room in rooms:
+        name = room.get("name", "")
+        if not name:
+            continue
+
+        # Extract room_type by stripping trailing digits
+        room_type = _extract_room_type(name)
+
+        # Build attachment URLs: /attachments/{filename}
+        attachment_urls = [
+            f"/attachments/{filename}"
+            for filename in room.get("attachments", [])
+        ]
+
+        room_data = {
+            "id": str(uuid.uuid4()),
+            "property_id": property_id,
+            "room_type": room_type,
+            "name": name,
+            "floor": None,
+            "description": None,
+            "objects_detected": room.get("objects", []),
+            "attachments": attachment_urls,
+            "visual_signature": None,
+            "confidence": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        insert("rooms", room_data)
+        room_ids.append(room_data["id"])
+
+    return room_ids
 
 
 def _validate_runpod_config() -> None:
@@ -210,7 +273,7 @@ def _create_attachment_record(
         email_id: FK to Email (can be empty for extracted images).
         filename: Filename for the attachment.
         content: Raw file bytes (used for size and checksum).
-        storage_path: Virtual path in storage (e.g., '/attachements/photo.png').
+        storage_path: Virtual path in storage (e.g., '/attachments/photo.png').
 
     Returns:
         Attachment dict with generated ID.
@@ -290,8 +353,8 @@ def preprocess_files(
                 img_bytes = img_info.get("data", b"")
                 img_filename = img_info.get("filename", f"page_{idx}.png")
 
-                # Store in /attachements/ directory
-                virtual_path = f"/attachements/{pdf_name}_{img_filename}"
+                # Store in /attachments/ directory
+                virtual_path = f"/attachments/{pdf_name}_{img_filename}"
                 storage.write(virtual_path, img_bytes, session_id, content_type=_get_content_type(img_filename))
                 image_urls.append(_get_signed_url(virtual_path, session_id, storage))
 
@@ -582,6 +645,7 @@ def preprocess_and_classify(
             "all_image_urls": [],
             "rooms": [],
             "attachment_ids": [],
+            "room_ids": [],
         }
 
     # Step 2: Classify images (blocks until complete)
@@ -593,15 +657,18 @@ def preprocess_and_classify(
     # Step 4: Extract room metadata
     rooms = extract_room_metadata(categorized)
 
-    # Step 4.5: Update attachment records with room names
+    # Step 4.5: Update attachment records with room names in extracted_text
     for room in rooms:
         room_name = room.get("name", "")
         if not room_name:
             continue
         for attachment_filename in room.get("attachments", []):
-            # LLM returns filenames, prepend /attachements/ to get storage_path
-            storage_path = f"/attachements/{attachment_filename}"
-            update_attachment_room_name(storage_path, room_name)
+            # LLM returns filenames, prepend /attachments/ to get storage_path
+            storage_path = f"/attachments/{attachment_filename}"
+            update_attachment_extracted_text(storage_path, room_name)
+
+    # Step 4.6: Create room records in database
+    room_ids = create_room_records(rooms)
 
     # Step 5: Save room metadata as JSON attachment
     room_meta_attachment_id = None
@@ -612,7 +679,7 @@ def preprocess_and_classify(
         timestamp = utc_now().strftime("%Y%m%d_%H%M%S")
         filename = f"room_meta_{timestamp}.json"
         json_content = json.dumps(rooms, indent=2).encode("utf-8")
-        storage_path = f"/attachements/{filename}"
+        storage_path = f"/attachments/{filename}"
 
         # Store JSON to blob storage
         storage.write(storage_path, json_content, session_id, content_type="application/json")
@@ -634,4 +701,5 @@ def preprocess_and_classify(
         "rooms": rooms,
         "attachment_ids": attachment_ids,
         "room_meta_attachment_id": room_meta_attachment_id,
+        "room_ids": room_ids,
     }

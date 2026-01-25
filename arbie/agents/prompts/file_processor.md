@@ -69,7 +69,7 @@ A JSON **array** of objects. Each object represents **one individual room**:
 
 - `"name"`: string — must follow the pattern `"<ROOM_TYPE_HINT><index>"`, starting at 1  
   Examples: `bedroom1`, `bedroom2`, `kitchen1`
-- `"objects"`: array of strings — visible objects/assets in that room
+- `"objects"`: array of strings — visible objects/assets in that room **focus on high level objects and important amenities**
 - `"attachments"`: array of strings — the image identifiers/filenames belonging to this room cluster
 
 ### Hard constraints:
