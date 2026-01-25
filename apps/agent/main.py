@@ -103,7 +103,7 @@ def build_session_context(
                 context_parts.append(f"  - ... and {len(attachments) - 5} more")
         
         # Include email body content prominently
-        body_text = latest_email.get("body_text")
+        body_text = latest_email.get("body_text") or latest_email.get("body_html") or ""
         if body_text:
             context_parts.extend([
                 "",
