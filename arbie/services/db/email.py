@@ -103,3 +103,24 @@ def update_attachment_after_extraction(
     attachment["updated_at"] = utc_now()
     insert(ATTACHMENTS_TABLE, attachment)
     return True
+
+
+def update_attachment_room_name(storage_path: str, room_name: str) -> bool:
+    """Update attachment with its classified room name.
+
+    Args:
+        storage_path: Virtual path of the attachment (e.g., /attachements/photo.png).
+        room_name: Room identifier from classification (e.g., "bedroom1").
+
+    Returns:
+        True if attachment was found and updated, False otherwise.
+    """
+    attachments = query(ATTACHMENTS_TABLE, pl.col("storage_path") == storage_path)
+    if not attachments:
+        return False
+
+    attachment = attachments[0]
+    attachment["room_name"] = room_name
+    attachment["updated_at"] = utc_now()
+    insert(ATTACHMENTS_TABLE, attachment)
+    return True

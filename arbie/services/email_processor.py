@@ -205,7 +205,8 @@ def store_email(
 
 
 # Image formats that should be converted to JPEG
-CONVERTIBLE_IMAGE_EXTENSIONS = {".png", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tiff", ".gif"}
+# PNG, JPEG, GIF, WebP are widely supported - no conversion needed
+CONVERTIBLE_IMAGE_EXTENSIONS = {".avif", ".heic", ".heif", ".bmp", ".tiff"}
 
 
 def _is_convertible_image(filename: str) -> bool:

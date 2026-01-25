@@ -95,6 +95,7 @@ ATTACHMENTS_SCHEMA = pa.schema([
     ("extracted_metadata", pa.list_(pa.string())),  # List of attachment IDs
     ("uploaded_at", TIMESTAMP_TYPE),
     ("processed_at", TIMESTAMP_TYPE),
+    ("room_name", pa.string()),
     ("created_at", TIMESTAMP_TYPE),
     ("updated_at", TIMESTAMP_TYPE),
 ])

@@ -23,7 +23,7 @@ from arbie.models.base import utc_now
 from arbie.models.email import Attachment
 from arbie.models.enums import AttachmentStatus
 from arbie.services.db.base import insert
-from arbie.services.db.email import update_attachment_after_extraction
+from arbie.services.db.email import update_attachment_after_extraction, update_attachment_room_name
 from arbie.services.storage import (
     get_storage_service,
     StorageService,
@@ -210,7 +210,7 @@ def _create_attachment_record(
         email_id: FK to Email (can be empty for extracted images).
         filename: Filename for the attachment.
         content: Raw file bytes (used for size and checksum).
-        storage_path: Virtual path in storage (e.g., '/extracted/photo.png').
+        storage_path: Virtual path in storage (e.g., '/attachements/photo.png').
 
     Returns:
         Attachment dict with generated ID.
@@ -290,8 +290,8 @@ def preprocess_files(
                 img_bytes = img_info.get("data", b"")
                 img_filename = img_info.get("filename", f"page_{idx}.png")
 
-                # Store in /extracted/ directory
-                virtual_path = f"/extracted/{pdf_name}_{img_filename}"
+                # Store in /attachements/ directory
+                virtual_path = f"/attachements/{pdf_name}_{img_filename}"
                 storage.write(virtual_path, img_bytes, session_id, content_type=_get_content_type(img_filename))
                 image_urls.append(_get_signed_url(virtual_path, session_id, storage))
 
@@ -593,6 +593,16 @@ def preprocess_and_classify(
     # Step 4: Extract room metadata
     rooms = extract_room_metadata(categorized)
 
+    # Step 4.5: Update attachment records with room names
+    for room in rooms:
+        room_name = room.get("name", "")
+        if not room_name:
+            continue
+        for attachment_filename in room.get("attachments", []):
+            # LLM returns filenames, prepend /attachements/ to get storage_path
+            storage_path = f"/attachements/{attachment_filename}"
+            update_attachment_room_name(storage_path, room_name)
+
     # Step 5: Save room metadata as JSON attachment
     room_meta_attachment_id = None
     if rooms:
@@ -602,7 +612,7 @@ def preprocess_and_classify(
         timestamp = utc_now().strftime("%Y%m%d_%H%M%S")
         filename = f"room_meta_{timestamp}.json"
         json_content = json.dumps(rooms, indent=2).encode("utf-8")
-        storage_path = f"/extracted/{filename}"
+        storage_path = f"/attachements/{filename}"
 
         # Store JSON to blob storage
         storage.write(storage_path, json_content, session_id, content_type="application/json")
