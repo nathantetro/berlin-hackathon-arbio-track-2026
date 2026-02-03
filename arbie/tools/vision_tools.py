@@ -187,64 +187,62 @@ def analyze_images(
     return analyze_images_impl(paths, prompt, session_id)
 
 
-@function_tool
-def classify_property_images(
-    paths: list[str],
-) -> dict[str, Any]:
-    """
-    Classify property images by room type and content.
+IMAGE_TYPE_CLASSIFICATION_PROMPT_TEMPLATE = """Classify these images into two categories:
 
-    Analyzes each image to identify:
-    - Room type (bedroom, bathroom, kitchen, living room, exterior, etc.)
-    - Key features visible in the image
-    - Suggested groupings for property listing
+**property_foto**: Photos of the property itself
+- Interior rooms (bedrooms, bathrooms, kitchens, living rooms, etc.)
+- Exterior views (building facade, entrance, balconies)
+- Outdoor areas (pool, garden, patio, terrace, parking)
+- Amenities and features
+
+**document_foto**: Scanned documents or plans
+- Floor plans, blueprints, architectural drawings
+- Contracts, certificates, licenses
+- Text documents, forms, receipts
+- Maps, diagrams
+
+Images provided:
+{image_list}
+
+Return JSON with two arrays of file paths:
+{{
+  "property_foto_paths": ["/attachments/bedroom.jpg", ...],
+  "document_foto_paths": ["/attachments/floorplan.jpg", ...]
+}}
+
+Classify ALL images. Return ONLY valid JSON.
+"""
+
+
+def classify_image_types_impl(
+    paths: list[str],
+    session_id: str | None = None
+) -> dict[str, Any]:
+    """Core implementation for image type classification.
 
     Args:
         paths: List of image file paths to classify
+        session_id: Optional session ID for storage access
 
     Returns:
-        Dict with:
-        - classifications: List of {path, room_type, features, confidence}
-        - suggested_groupings: Grouped images by room type
-        - summary: Overall summary of property images
+        Dict with property_foto_paths and document_foto_paths
     """
     from openai import OpenAI
-
-    session_id = get_session_context()
-    if not session_id:
-        return {"status": "error", "message": "No session context available."}
+    import json
 
     if not paths:
-        return {"status": "error", "message": "No image paths provided."}
+        return {"error": "No image paths provided."}
 
     storage = get_storage_service()
     client = OpenAI()
 
+    # Build image list for prompt
+    image_list = "\n".join([f"{i}. {path}" for i, path in enumerate(paths)])
+    prompt = IMAGE_TYPE_CLASSIFICATION_PROMPT_TEMPLATE.format(image_list=image_list)
+
     # Build message content with all images
     content: list[dict[str, Any]] = [
-        {
-            "type": "text",
-            "text": """Analyze these property images and classify each one. For each image, provide:
-1. Room type: bedroom, bathroom, kitchen, living_room, dining_room, exterior, garage, pool, garden, office, other
-2. Key features visible (e.g., "queen bed, window, hardwood floors")
-3. Confidence level (high, medium, low)
-
-Then provide suggested groupings and an overall summary.
-
-Respond in JSON format:
-{
-    "classifications": [
-        {"image_index": 0, "room_type": "bedroom", "features": ["queen bed", "window"], "confidence": "high"},
-        ...
-    ],
-    "suggested_groupings": {
-        "bedroom": [0, 2],
-        "bathroom": [1, 3],
-        ...
-    },
-    "summary": "This property has 2 bedrooms, 2 bathrooms..."
-}"""
-        }
+        {"type": "text", "text": prompt}
     ]
 
     loaded_indices = []
@@ -252,15 +250,20 @@ Respond in JSON format:
 
     for i, path in enumerate(paths):
         try:
-            image_bytes = storage.read(path, session_id)
-            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-            content_type = _get_content_type(path)
+            if session_id:
+                # Read from storage service
+                image_bytes = storage.read(path, session_id)
+                image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+                content_type = _get_content_type(path)
+            else:
+                # Read directly from filesystem (for testing)
+                image_b64, content_type = load_image_as_base64(path)
 
             content.append({
                 "type": "image_url",
                 "image_url": {
                     "url": f"data:{content_type};base64,{image_b64}",
-                    "detail": "low",  # Use low detail for classification
+                    "detail": "low",  # Low detail sufficient for type classification
                 }
             })
             loaded_indices.append(i)
@@ -269,8 +272,9 @@ Respond in JSON format:
             errors.append(f"Image {i} ({path}): {e}")
 
     if not loaded_indices:
-        return {"status": "error", "message": f"Could not load any images: {'; '.join(errors)}"}
+        return {"error": f"Could not load any images: {'; '.join(errors)}"}
 
+    # Call OpenAI Vision API with structured output
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -279,28 +283,49 @@ Respond in JSON format:
             response_format={"type": "json_object"},
         )
 
-        import json
         result_text = response.choices[0].message.content or "{}"
         result = json.loads(result_text)
 
-        # Map image indices back to paths
-        for classification in result.get("classifications", []):
-            idx = classification.get("image_index", 0)
-            if idx < len(paths):
-                classification["path"] = paths[idx]
+        # LLM returns paths directly
+        return {
+            "property_foto_paths": result.get("property_foto_paths", []),
+            "document_foto_paths": result.get("document_foto_paths", []),
+        }
 
-        # Map groupings back to paths
-        groupings_with_paths = {}
-        for room_type, indices in result.get("suggested_groupings", {}).items():
-            groupings_with_paths[room_type] = [
-                paths[i] for i in indices if i < len(paths)
-            ]
-        result["suggested_groupings"] = groupings_with_paths
-
-        if errors:
-            result["load_errors"] = errors
-
-        return result
-
+    except json.JSONDecodeError as e:
+        return {"error": f"Failed to parse JSON response: {e}"}
     except Exception as e:
-        return {"status": "error", "message": f"Vision API error: {e}"}
+        return {"error": f"Vision API error: {e}"}
+
+
+@function_tool
+def classify_image_types(paths: list[str]) -> dict[str, Any]:
+    """
+    Classify images as property photos or document photos. **Use this tool to classify images before using the analyze_images tool.**.
+
+    Analyzes each image to determine if it's:
+    - property_foto: Photos of the property (interior rooms, exterior, pool, garden, etc.)
+    - document_foto: Scanned documents, floor plans, contracts, certificates, etc.
+
+    Args:
+        paths: List of image file paths to classify (e.g., ["/attachments/img1.jpg", ...])
+
+    Returns:
+        Dict with two lists of paths:
+        {
+            "property_foto_paths": ["/attachments/bedroom.jpg", "/attachments/exterior.jpg"],
+            "document_foto_paths": ["/attachments/floorplan.jpg"]
+        }
+
+    Example:
+        result = classify_image_types([
+            "/attachments/bedroom.jpg",
+            "/attachments/floorplan.jpg",
+            "/attachments/exterior.jpg"
+        ])
+    """
+    session_id = get_session_context()
+    if not session_id:
+        return {"error": "No session context available."}
+
+    return classify_image_types_impl(paths, session_id)
