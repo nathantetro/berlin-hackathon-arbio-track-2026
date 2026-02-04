@@ -9,6 +9,7 @@ Provides external service integrations:
 from arbie.services.graph_client import GraphClient, get_graph_client
 from arbie.services.resend_client import ResendClient, get_resend_client
 from arbie.services.email_processor import process_inbound_email
+from arbie.services.openai_client import get_openai_client, OpenAIClientConfig
 
 __all__ = [
     "GraphClient",
@@ -16,4 +17,6 @@ __all__ = [
     "ResendClient",
     "get_resend_client",
     "process_inbound_email",
+    "get_openai_client",
+    "OpenAIClientConfig",
 ]

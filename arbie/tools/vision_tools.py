@@ -5,11 +5,30 @@ Provides image analysis capabilities using OpenAI Vision API.
 
 import base64
 import os
+from pathlib import Path
 from typing import Any
 
 from agents import function_tool
 
 from arbie.services.storage import get_storage_service
+from arbie.services.openai_client import get_openai_client
+from arbie.services.db.rooms import (
+    create_room_records_from_vision,
+    update_attachments_with_room_names,
+)
+
+
+# Load property photo analyzer prompt
+PROPERTY_PHOTO_ANALYZER_PROMPT_PATH = (
+    Path(__file__).parent.parent / "agents" / "prompts" / "property_photo_analyzer.md"
+)
+PROPERTY_PHOTO_ANALYZER_PROMPT = PROPERTY_PHOTO_ANALYZER_PROMPT_PATH.read_text()
+
+# Load document image analyzer prompt
+DOCUMENT_IMAGE_ANALYZER_PROMPT_PATH = (
+    Path(__file__).parent.parent / "agents" / "prompts" / "document_image_analyzer.md"
+)
+DOCUMENT_IMAGE_ANALYZER_PROMPT = DOCUMENT_IMAGE_ANALYZER_PROMPT_PATH.read_text()
 
 
 # Session context - set by the agent runner
@@ -80,12 +99,10 @@ def analyze_images_impl(
     Returns:
         The vision model's response as a string with the requested analysis.
     """
-    from openai import OpenAI
-
     if not paths:
         return "Error: No image paths provided."
 
-    client = OpenAI()
+    client = get_openai_client()
 
     # Build message content with images
     content: list[dict[str, Any]] = [
@@ -227,14 +244,13 @@ def classify_image_types_impl(
     Returns:
         Dict with property_foto_paths and document_foto_paths
     """
-    from openai import OpenAI
     import json
 
     if not paths:
         return {"error": "No image paths provided."}
 
     storage = get_storage_service()
-    client = OpenAI()
+    client = get_openai_client()
 
     # Build image list for prompt
     image_list = "\n".join([f"{i}. {path}" for i, path in enumerate(paths)])
@@ -329,3 +345,293 @@ def classify_image_types(paths: list[str]) -> dict[str, Any]:
         return {"error": "No session context available."}
 
     return classify_image_types_impl(paths, session_id)
+
+
+def analyze_property_fotos_impl(
+    paths: list[str],
+    session_id: str | None = None,
+    save_to_db: bool = False,
+    email_id: str = "",
+    property_id: str = "",
+) -> dict[str, Any]:
+    """Core implementation for property photo analysis with room clustering.
+
+    Args:
+        paths: List of image file paths to analyze
+        session_id: Optional session ID for storage access
+        save_to_db: If True, create room records and update attachments in DB
+        email_id: Email ID for linking attachments (optional)
+        property_id: Property ID for linking rooms (optional, can be set later)
+
+    Returns:
+        Dict with:
+        - 'rooms': List of room dicts with name, room_type, objects, attachments
+        - 'room_ids': List of created room record IDs (empty if save_to_db=False)
+    """
+    import json
+
+    if not paths:
+        return {"rooms": [], "room_ids": []}
+
+    storage = get_storage_service()
+    client = get_openai_client()
+
+    # Build image list for user message
+    image_list = "\n".join([f"{i}. {path}" for i, path in enumerate(paths)])
+    user_text = f"Analyze these property photos. Image identifiers in order:\n{image_list}"
+
+    # Build message content with system prompt and images
+    content: list[dict[str, Any]] = [
+        {"type": "text", "text": user_text}
+    ]
+
+    loaded_indices = []
+    errors = []
+
+    for i, path in enumerate(paths):
+        try:
+            if session_id:
+                # Read from storage service
+                image_bytes = storage.read(path, session_id)
+                image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+                content_type = _get_content_type(path)
+            else:
+                # Read directly from filesystem (for testing)
+                image_b64, content_type = load_image_as_base64(path)
+
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{content_type};base64,{image_b64}",
+                    "detail": "high",  # High detail for detailed analysis
+                }
+            })
+            loaded_indices.append(i)
+
+        except Exception as e:
+            errors.append(f"Image {i} ({path}): {e}")
+
+    if not loaded_indices:
+        return {"rooms": [], "room_ids": []}
+
+    # Call OpenAI Vision API with system + user messages
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": PROPERTY_PHOTO_ANALYZER_PROMPT},
+                {"role": "user", "content": content}
+            ],
+            max_tokens=4096,
+            response_format={"type": "json_object"},
+        )
+
+        result_text = response.choices[0].message.content or "[]"
+        result = json.loads(result_text)
+
+        # Result should be array or dict with array
+        if isinstance(result, dict):
+            rooms = result.get("rooms", [])
+        else:
+            rooms = result
+
+        # Database operations
+        room_ids: list[str] = []
+
+        if save_to_db and rooms:
+            # Step 1: Create room records
+            room_ids = create_room_records_from_vision(rooms, property_id)
+
+            # Step 2: Update attachment records with room names
+            update_attachments_with_room_names(rooms, session_id)
+
+        return {
+            "rooms": rooms,
+            "room_ids": room_ids,
+        }
+
+    except json.JSONDecodeError:
+        return {"rooms": [], "room_ids": []}
+    except Exception:
+        return {"rooms": [], "room_ids": []}
+
+
+@function_tool
+def analyze_property_fotos(
+    paths: list[str],
+    save_to_db: bool = True,
+    email_id: str = "",
+    property_id: str = "",
+) -> dict[str, Any]:
+    """
+    Analyze property photos and cluster them into distinct rooms with room type classification.
+
+    Analyzes property photos to:
+    - Cluster images into distinct physical rooms
+    - Classify each room's type (bedroom, bathroom, kitchen, living_room, etc.)
+    - Extract visible objects and amenities
+    - Group images that show the same room from different angles
+    - **Optionally save results to database** (room records + attachment updates)
+
+    This is ideal for processing a batch of mixed property photos where you need to
+    understand the room structure and inventory.
+
+    Args:
+        paths: List of image file paths to analyze (typically in /attachments/)
+        save_to_db: If True, create room records and update attachments in database (default: True)
+        email_id: Email ID for linking attachments (optional)
+        property_id: Property ID for linking rooms (optional, can be linked later)
+
+    Returns:
+        Dict with:
+        - rooms: List of room dicts, each with:
+            - name: Room identifier (e.g., 'bedroom1', 'kitchen1')
+            - room_type: Canonical room type from RoomType enum (24 types)
+            - objects: List of visible objects/amenities
+            - attachments: List of image paths belonging to this room
+        - room_ids: List of created room record IDs (empty list if save_to_db=False)
+
+    Example:
+        result = analyze_property_fotos([
+            "/attachments/img1.jpg",
+            "/attachments/img2.jpg",
+            "/attachments/img3.jpg"
+        ], save_to_db=True, property_id="prop-123")
+
+        # Access rooms
+        for room in result["rooms"]:
+            print(f"Found {room['room_type']}: {room['name']}")
+            print(f"  Objects: {', '.join(room['objects'])}")
+            print(f"  Images: {len(room['attachments'])}")
+
+        # Access room IDs for linking
+        print(f"Created room IDs: {result['room_ids']}")
+    """
+    session_id = get_session_context()
+    if not session_id:
+        return {"rooms": [], "room_ids": []}
+
+    return analyze_property_fotos_impl(
+        paths,
+        session_id,
+        save_to_db=save_to_db,
+        email_id=email_id,
+        property_id=property_id,
+    )
+
+
+def analyze_document_images_impl(
+    paths: list[str],
+    session_id: str | None = None
+) -> str:
+    """Core implementation for document image analysis.
+
+    Args:
+        paths: List of document image paths to analyze
+        session_id: Optional session ID for storage access
+
+    Returns:
+        Text description of documents with extracted information.
+    """
+    if not paths:
+        return "Error: No document images provided."
+
+    storage = get_storage_service()
+    client = get_openai_client()
+
+    # Build image list for user message
+    image_list = "\n".join([f"{i}. {path}" for i, path in enumerate(paths)])
+    user_text = f"Analyze these document images. Image identifiers in order:\n{image_list}"
+
+    # Build message content
+    content: list[dict[str, Any]] = [
+        {"type": "text", "text": user_text}
+    ]
+
+    loaded_indices = []
+    errors = []
+
+    for i, path in enumerate(paths):
+        try:
+            if session_id:
+                # Read from storage service
+                image_bytes = storage.read(path, session_id)
+                image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+                content_type = _get_content_type(path)
+            else:
+                # Read directly from filesystem (for testing)
+                image_b64, content_type = load_image_as_base64(path)
+
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{content_type};base64,{image_b64}",
+                    "detail": "high",  # High detail for reading text
+                }
+            })
+            loaded_indices.append(i)
+
+        except Exception as e:
+            errors.append(f"Image {i} ({path}): {e}")
+
+    if not loaded_indices:
+        return f"Error: Could not load any images. Errors: {'; '.join(errors)}"
+
+    # Call OpenAI Vision API with system + user messages
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": DOCUMENT_IMAGE_ANALYZER_PROMPT},
+                {"role": "user", "content": content}
+            ],
+            max_tokens=4096,
+            # No response_format - returns text
+        )
+
+        result = response.choices[0].message.content or "No response from vision model."
+
+        # Append any errors that occurred during image loading
+        if errors:
+            result += f"\n\nNote: Some images could not be loaded: {'; '.join(errors)}"
+
+        return result
+
+    except Exception as e:
+        return f"Error calling vision API: {e}"
+
+
+@function_tool
+def analyze_document_images(paths: list[str]) -> str:
+    """
+    Analyze document images and extract key information.
+
+    Analyzes scanned documents, floor plans, contracts, certificates, and other
+    document-type images to:
+    - Identify document type (floor plan, contract, license, certificate, etc.)
+    - Extract visible text and key information
+    - Describe layout, structure, and notable details
+    - Report dates, names, signatures, stamps, measurements
+
+    This is ideal for processing PDFs, scanned contracts, certificates, floor plans,
+    and other text-heavy or technical documents.
+
+    Args:
+        paths: List of document image paths to analyze (typically in /attachments/)
+
+    Returns:
+        Text description of the documents with extracted information.
+
+    Example:
+        description = analyze_document_images([
+            "/attachments/floorplan.jpg",
+            "/attachments/contract.jpg"
+        ])
+        # Returns: "Image 1 (floorplan.jpg): Floor plan showing 2-bedroom layout...
+        #           Image 2 (contract.jpg): Rental contract dated 2024-01-15..."
+    """
+    session_id = get_session_context()
+    if not session_id:
+        return "Error: No session context available."
+
+    return analyze_document_images_impl(paths, session_id)

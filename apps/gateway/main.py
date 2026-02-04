@@ -473,18 +473,26 @@ async def process_email_notification(message_id: str) -> None:
         print(f"Fetched message: {message.subject} from {message.from_address.address}")
 
         # Fetch attachments (always check - hasAttachments can be False for inline-only emails)
-        attachments = []
+        # Download attachments in parallel for better performance
         att_list = await graph.list_attachments(message_id)
-        for att in att_list:
+
+        async def download_attachment(att):
+            """Download a single attachment, skipping small inline images."""
             # Skip small inline images (likely signatures/icons) but keep larger ones (real photos)
             # Microsoft Graph marks many legitimate attachments as "inline"
             if att.is_inline and att.size < 10_000:  # Skip only if inline AND < 10KB
                 print(f"  Skipping small inline image: {att.name} ({att.size} bytes)")
-                continue
+                return None
             content = await graph.get_attachment(message_id, att.id)
-            attachments.append((att, content))
+            return (att, content)
+
+        # Download all attachments concurrently
+        attachment_tasks = [download_attachment(att) for att in att_list]
+        attachment_results = await asyncio.gather(*attachment_tasks)
+        attachments = [r for r in attachment_results if r is not None]
+
         if attachments:
-            print(f"Fetched {len(attachments)} attachments")
+            print(f"Fetched {len(attachments)} attachments (parallel)")
 
         # Process the email (creates/finds session)
         result = await process_inbound_email(message, attachments)

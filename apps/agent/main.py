@@ -12,10 +12,11 @@ from agents import Runner, set_tracing_export_api_key
 import arbie
 from arbie.agents.arbie_agent import arbie_agent
 from arbie.services.db.base import init_all_tables
-from arbie.models.enums import AttachmentStatus
-from arbie.services.db.email import get_attachments_by_session, get_emails_by_session
+# from arbie.models.enums import AttachmentStatus
+from arbie.services.db.email import get_emails_by_session
+# from arbie.services.db.email import get_attachments_by_session  # Only used in commented preprocessing
 from arbie.services.db.session import get_session
-from arbie.services.file_preprocessing import preprocess_and_classify
+# from arbie.services.file_preprocessing import preprocess_and_classify
 from arbie.services.tower_session import TowerEmailSession
 from arbie.services.streaming import print_stream_event
 from arbie.tools.email_tools import set_session_context as set_email_session_context

@@ -22,7 +22,6 @@ from urllib.parse import urlparse, unquote
 
 import httpx
 from mistralai import Mistral
-from openai import OpenAI
 
 from arbie.models.base import utc_now
 from arbie.models.email import Attachment
@@ -33,6 +32,7 @@ from arbie.services.storage import (
     get_storage_service,
     StorageService,
 )
+from arbie.services.openai_client import get_openai_client
 
 # Load file processor prompt (read directly since it has runtime placeholders)
 FILE_PROCESSOR_PROMPT_PATH = Path(__file__).parent.parent / "agents" / "prompts" / "file_processor.md"
@@ -586,8 +586,8 @@ def _process_room_type(
     # Retry loop with exponential backoff
     for attempt in range(max_retries + 1):
         try:
-            # Fresh client per call (thread-safe)
-            openai_client = OpenAI()
+            # Get shared OpenAI client (thread-safe)
+            openai_client = get_openai_client()
 
             print(f"  [{room_type}] Calling OpenAI API with {len(user_content) - 1} images (attempt {attempt + 1}/{max_retries + 1})...")
             response = openai_client.chat.completions.create(

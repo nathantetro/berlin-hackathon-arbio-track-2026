@@ -1,5 +1,6 @@
 """Core Tower table operations - generic CRUD and table access."""
 
+import asyncio
 import random
 import time
 from datetime import datetime, timezone
@@ -135,6 +136,23 @@ def count(table_name: str) -> int:
 def exists(table_name: str, id: str) -> bool:
     """Check if a row exists by ID."""
     return get_by_id(table_name, id) is not None
+
+
+# === Async Wrappers ===
+# These run sync operations in a thread pool to avoid blocking the event loop
+# during database retries with exponential backoff
+
+
+async def insert_async(table_name: str, data: dict) -> None:
+    """Async version of insert - runs in thread pool to avoid blocking event loop."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, insert, table_name, data)
+
+
+async def insert_many_async(table_name: str, rows: list[dict]) -> None:
+    """Async version of insert_many - runs in thread pool to avoid blocking event loop."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, insert_many, table_name, rows)
 
 
 # === Helpers ===

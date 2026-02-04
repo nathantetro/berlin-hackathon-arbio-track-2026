@@ -3,6 +3,7 @@
 Coordinates session matching, user lookup, and email storage.
 """
 
+import asyncio
 import hashlib
 import io
 import random
@@ -27,7 +28,7 @@ from arbie.models.email import Attachment, Email
 from arbie.models.enums import AttachmentStatus, EmailDirection, EmailType, SessionStatus
 from arbie.models.session import Session
 from arbie.models.user import User
-from arbie.services.db.base import insert, query
+from arbie.services.db.base import insert, insert_async, query
 from arbie.services.graph_client import GraphAttachment, GraphMessage
 
 
@@ -296,10 +297,21 @@ async def store_attachment(
     Returns:
         Attachment dict.
     """
+    from arbie.services.db.email import get_attachments_by_email
+
+    filename = attachment_info.name
+
+    # CHECK: Does this email already have an attachment with this filename?
+    existing_attachments = get_attachments_by_email(email_id)
+    for att in existing_attachments:
+        if att["filename"] == filename:
+            print(f"✓ Duplicate attachment skipped: {filename} already exists for email {email_id}")
+            return att  # Return existing attachment record
+
+    # No duplicate found - proceed with normal upload
     from arbie.services.storage import get_storage_service
 
     # Convert images to JPEG if needed
-    filename = attachment_info.name
     content_type = attachment_info.content_type
     file_content = content
 
@@ -335,7 +347,7 @@ async def store_attachment(
         updated_at=now,
     )
     attachment_dict = attachment.model_dump()
-    insert("attachments", attachment_dict)
+    await insert_async("attachments", attachment_dict)
 
     return attachment_dict
 
@@ -411,14 +423,18 @@ async def process_inbound_email(
         email_type=email_type,
     )
 
-    # 4. Store attachments
-    for att_info, att_content in attachments:
-        await store_attachment(
-            email_id=email["id"],
-            attachment_info=att_info,
-            content=att_content,
-            session_id=session["id"],
-        )
+    # 4. Store attachments in parallel for better performance
+    if attachments:
+        upload_tasks = [
+            store_attachment(
+                email_id=email["id"],
+                attachment_info=att_info,
+                content=att_content,
+                session_id=session["id"],
+            )
+            for att_info, att_content in attachments
+        ]
+        await asyncio.gather(*upload_tasks)
 
     # 5. Update session activity
     update_session_activity(session["id"])
