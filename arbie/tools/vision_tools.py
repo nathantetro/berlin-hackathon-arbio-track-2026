@@ -167,43 +167,45 @@ def analyze_images_impl(
         return f"Error calling vision API: {e}"
 
 
-@function_tool
-def analyze_images(
-    paths: list[str],
-    prompt: str
-) -> str:
-    """
-    Analyze one or more images using a vision model.
+# @function_tool
+# def analyze_images(
+#     paths: list[str],
+#     prompt: str
+# ) -> str:
+#     """
+#     Analyze one or more images using a vision model.
+#
+#     Send images to a vision-capable model with a custom prompt to extract
+#     information. Useful for:
+#     - Identifying room types from photos
+#     - Counting beds, bathrooms, amenities
+#     - Assessing property condition
+#     - Reading text from images (signs, documents)
+#     - Detecting safety features (smoke detectors, fire extinguishers)
+#
+#     Args:
+#         paths: List of image file paths to analyze (typically in /attachments/)
+#         prompt: The analysis prompt/question to ask about the images.
+#                 Be specific about what information you want extracted.
+#
+#     Returns:
+#         The vision model's response as a string with the requested analysis.
+#
+#     Example:
+#         analyze_images(
+#             paths=["/attachments/bedroom1.jpg", "/attachments/bedroom2.jpg"],
+#             prompt="How many beds are in each image? What size are they?"
+#         )
+#     """
+#     session_id = get_session_context()
+#     if not session_id:
+#         return "Error: No session context available."
+#
+#     return analyze_images_impl(paths, prompt, session_id)
 
-    Send images to a vision-capable model with a custom prompt to extract
-    information. Useful for:
-    - Identifying room types from photos
-    - Counting beds, bathrooms, amenities
-    - Assessing property condition
-    - Reading text from images (signs, documents)
-    - Detecting safety features (smoke detectors, fire extinguishers)
-
-    Args:
-        paths: List of image file paths to analyze (typically in /attachments/)
-        prompt: The analysis prompt/question to ask about the images.
-                Be specific about what information you want extracted.
-
-    Returns:
-        The vision model's response as a string with the requested analysis.
-
-    Example:
-        analyze_images(
-            paths=["/attachments/bedroom1.jpg", "/attachments/bedroom2.jpg"],
-            prompt="How many beds are in each image? What size are they?"
-        )
-    """
-    session_id = get_session_context()
-    if not session_id:
-        return "Error: No session context available."
-
-    return analyze_images_impl(paths, prompt, session_id)
 
 
+# TODO: Maybe chage this logic to already extract room type
 IMAGE_TYPE_CLASSIFICATION_PROMPT_TEMPLATE = """Classify these images into two categories:
 
 **property_foto**: Photos of the property itself

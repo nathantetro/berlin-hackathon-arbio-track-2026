@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-import tower
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
@@ -540,26 +539,27 @@ async def trigger_agent(
     trigger_type: str,
     email_id: str,
 ) -> None:
-    """Trigger the arbie-agent app to process the session.
+    """Trigger the agent to process the session.
 
-    Uses Tower's run_app to start the agent asynchronously.
+    Runs the agent directly as an async task in the same process.
     """
+    from apps.agent.main import run_agent_for_session
+
     print(
         f"Triggering agent: session_id={session_id}, "
         f"trigger_type={trigger_type}, email_id={email_id}"
     )
 
-    # Run the agent app with parameters
-    tower.run_app(
-        "arbie-agent",
-        parameters={
-            "session_id": session_id,
-            "trigger_type": trigger_type,
-            "email_id": email_id,
-        },
+    # Create background task for the agent
+    asyncio.create_task(
+        run_agent_for_session(
+            session_id=session_id,
+            trigger_type=trigger_type,
+            email_id=email_id,
+        )
     )
 
-    print(f"Agent triggered successfully for session {session_id}")
+    print(f"Agent task created for session {session_id}")
 
 
 def main():

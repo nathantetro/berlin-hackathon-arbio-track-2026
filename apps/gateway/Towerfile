@@ -1,13 +1,14 @@
 parameters = []
 
 [app]
-name = "arbie-gateway"
+name = "arbie"
 script = "./main.py"
 source = [
     ".",
     "../../arbie",
+    "../agent",
     "./pyproject.toml",
 ]
 schedule = ""
-description = "Arbie Gateway - FastAPI server for email webhook notifications"
+description = "Arbie - Email gateway and AI property onboarding agent"
 import_paths = ["../.."]

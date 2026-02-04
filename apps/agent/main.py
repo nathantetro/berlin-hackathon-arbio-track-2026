@@ -1,6 +1,7 @@
 """Arbie Agent Runner - Entry point for Tower execution.
 
 Accepts parameters to process a specific session with context.
+Can be called directly from gateway or run standalone via CLI.
 """
 
 import asyncio
@@ -21,6 +22,9 @@ from arbie.services.tower_session import TowerEmailSession
 from arbie.services.streaming import print_stream_event
 from arbie.tools.email_tools import set_session_context as set_email_session_context
 from arbie.tools.session_tools import set_session_context as set_session_session_context
+
+# Flag to track if tracing has been configured (avoid duplicate setup)
+_tracing_configured = False
 
 # Path to trigger prompts - use arbie module location for Tower compatibility
 PROMPTS_DIR = Path(arbie.__file__).parent / "agents" / "prompts" / "triggers"
@@ -173,12 +177,22 @@ async def run_agent_streamed(
     return result.final_output
 
 
-def main() -> int:
-    """Main entry point for Arbie agent runner."""
-    # Get parameters from environment (Tower passes them this way)
-    session_id = os.getenv("session_id")
-    trigger_type = os.getenv("trigger_type", "unknown")
-    email_id = os.getenv("email_id")
+async def run_agent_for_session(
+    session_id: str,
+    trigger_type: str,
+    email_id: str | None = None,
+) -> int:
+    """Run the agent for a session. Callable from gateway or standalone.
+
+    Args:
+        session_id: The session to process.
+        trigger_type: Either "new_submission" or "follow_up_response".
+        email_id: Optional specific email that triggered this run.
+
+    Returns:
+        0 on success, 1 on error.
+    """
+    global _tracing_configured
 
     print("=" * 60)
     print(f"Session ID: {session_id}")
@@ -197,12 +211,13 @@ def main() -> int:
         print("Error: OPENAI_API_KEY environment variable not set")
         return 1
 
-    # Configure OpenAI Agents SDK tracing
-    # Traces are sent to https://platform.openai.com/traces
-    set_tracing_export_api_key(api_key)
-    print("OpenAI Agents SDK tracing enabled")
+    # Configure OpenAI Agents SDK tracing (only once)
+    if not _tracing_configured:
+        set_tracing_export_api_key(api_key)
+        _tracing_configured = True
+        print("OpenAI Agents SDK tracing enabled")
 
-    # Initialize database tables
+    # Initialize database tables (idempotent)
     init_all_tables()
 
     # Set session context for tools
@@ -218,31 +233,6 @@ def main() -> int:
 
     print(f"\nAgent Prompt:\n{prompt}\n")
     print("=" * 60)
-
-    # # Preprocess attachments (PDFs and images) before agent runs
-    # attachments = get_attachments_by_session(session_id)
-    # file_paths = [
-    #     att["storage_path"]
-    #     for att in attachments
-    #     if att.get("storage_path") and att.get("status") != AttachmentStatus.PROCESSED.value
-    # ]
-
-    # if file_paths:
-    #     print(f"Preprocessing {len(file_paths)} attachments...")
-    #     try:
-    #         preprocess_result = preprocess_and_classify(
-    #             file_paths=file_paths,
-    #             session_id=session_id,
-    #             email_id=email_id or "",
-    #         )
-    #         print(f"Extracted text from {len(preprocess_result['extracted_text'])} PDFs")
-    #         print(f"Classified {len(preprocess_result['all_image_urls'])} images")
-    #         print(f"Found {len(preprocess_result['rooms'])} rooms")
-    #     except Exception as e:
-    #         print(f"Warning: Preprocessing failed: {e}")
-    #         # Continue anyway - agent can still work without preprocessing
-
-    print("=" * 60)
     print("Running agent with streaming...\n")
 
     # Create session to load conversation history from emails
@@ -251,11 +241,9 @@ def main() -> int:
 
     # Run agent with streaming
     try:
-        final_output = asyncio.run(
-            run_agent_streamed(
-                prompt=prompt,
-                session=session,
-            )
+        final_output = await run_agent_streamed(
+            prompt=prompt,
+            session=session,
         )
 
         print("\n" + "=" * 60)
@@ -278,9 +266,9 @@ def main() -> int:
             from arbie.services.db.email import get_emails_by_session
             from arbie.services.resend_client import get_resend_client
 
-            session = get_session(session_id)
-            if session:
-                user = get_user(session.get("user_id", ""))
+            db_session = get_session(session_id)
+            if db_session:
+                user = get_user(db_session.get("user_id", ""))
                 if user and user.get("email"):
                     # Get threading info from session emails
                     emails = get_emails_by_session(session_id)
@@ -289,7 +277,7 @@ def main() -> int:
                     client = get_resend_client()
                     client._send_burnout_notification(
                         original_to=user["email"],
-                        original_subject=f"Session {session.get('reference_code', session_id)}",
+                        original_subject=f"Session {db_session.get('reference_code', session_id)}",
                         error=e,
                         in_reply_to=in_reply_to,
                         references=[in_reply_to] if in_reply_to else None,
@@ -298,6 +286,23 @@ def main() -> int:
             print(f"Failed to send burnout notification: {notify_error}")
 
         return 1
+
+
+def main() -> int:
+    """Main entry point for Arbie agent runner (CLI/standalone usage)."""
+    # Get parameters from environment (Tower passes them this way)
+    session_id = os.getenv("session_id")
+    trigger_type = os.getenv("trigger_type", "unknown")
+    email_id = os.getenv("email_id") or None
+
+    # Run the async agent function
+    return asyncio.run(
+        run_agent_for_session(
+            session_id=session_id,
+            trigger_type=trigger_type,
+            email_id=email_id,
+        )
+    )
 
 
 if __name__ == "__main__":

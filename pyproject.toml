@@ -19,13 +19,15 @@ dependencies = [
     "httpx>=0.28.0",
     "python-multipart>=0.0.20",
     "msal>=1.32.0",
-    # Azure Blob Storage
-    "azure-storage-blob>=12.20.0",
-    "azure-identity>=1.15.0",
+    # AWS S3 Storage
+    "boto3>=1.35.0",
+    "aioboto3>=13.0.0",
     # Mistral AI
     "mistralai>=1.0.0",
+    # Data/Table formats
     "pyarrow>=15.0.0",
     "polars>=1.0.0",
+    "pyiceberg>=0.7.0",
     # Tracing
     "keywordsai-sdk>=0.4.39",
     "pillow-heif>=0.21.0",

@@ -110,6 +110,99 @@ def _build_rooms_summary(rooms: list[dict]) -> dict[str, dict]:
     return summary
 
 
+def _extract_pdf_on_demand(path: str, session_id: str, email_id: str) -> dict:
+    """Extract text and images from PDF using Mistral OCR.
+
+    Called when read_file() encounters a PDF without extracted_text.
+    Saves extracted images to /extracted/ and updates the attachment record.
+
+    Args:
+        path: Virtual path to PDF (e.g., /attachments/doc.pdf)
+        session_id: Session ID for storage operations
+        email_id: Email ID to link extracted images to
+
+    Returns:
+        dict with 'text' and 'image_paths' or 'error'
+    """
+    import hashlib
+
+    from arbie.models.base import utc_now
+    from arbie.models.email import Attachment
+    from arbie.models.enums import AttachmentStatus
+    from arbie.services.db.base import insert
+    from arbie.services.db.email import update_attachment_after_extraction
+    from arbie.services.file_preprocessing import extract_images_and_text, _get_content_type
+
+    storage = get_storage_service()
+
+    # Generate presigned URL for Mistral API
+    try:
+        pdf_url = storage.get_signed_url(path, session_id)
+    except FileNotFoundError:
+        return {"error": f"PDF not found: {path}"}
+
+    # Call Mistral OCR
+    try:
+        extraction = extract_images_and_text(pdf_url)
+    except Exception as e:
+        return {"error": f"Mistral OCR failed: {e}"}
+
+    extracted_text = extraction["text"]
+    images = extraction["images"]
+
+    # Get PDF base name for image naming
+    pdf_basename = os.path.splitext(os.path.basename(path))[0]
+
+    # Save extracted images to /extracted/ and create attachment records
+    extracted_image_ids = []
+    extracted_image_paths = []
+    now = utc_now()
+
+    for img_info in images:
+        img_bytes = img_info.get("data", b"")
+        img_filename = img_info.get("filename", "image.jpg")
+
+        # Build path: /extracted/{pdf_name}_{original_filename}
+        virtual_path = f"/extracted/{pdf_basename}_{img_filename}"
+        content_type = _get_content_type(img_filename)
+
+        # Write to S3
+        storage.write(virtual_path, img_bytes, session_id, content_type=content_type)
+
+        # Create attachment record
+        checksum = hashlib.sha256(img_bytes).hexdigest()
+        attachment = Attachment(
+            email_id=email_id,
+            filename=f"{pdf_basename}_{img_filename}",
+            content_type=content_type,
+            size_bytes=len(img_bytes),
+            storage_path=virtual_path,
+            checksum=checksum,
+            status=AttachmentStatus.NOT_ANALYZED,
+            uploaded_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        attachment_dict = attachment.model_dump()
+        insert("attachments", attachment_dict)
+
+        extracted_image_ids.append(attachment_dict["id"])
+        extracted_image_paths.append(virtual_path)
+
+    # Update original PDF attachment with extracted data
+    update_attachment_after_extraction(
+        path,
+        extracted_text,
+        extracted_image_ids,  # stored in extracted_metadata field
+    )
+
+    return {
+        "text": extracted_text,
+        "image_paths": extracted_image_paths,  # Resolved paths for agent response
+        "image_ids": extracted_image_ids,      # IDs stored in DB
+    }
+
+
 @function_tool
 def get_session_overview() -> dict:
     """
@@ -343,7 +436,7 @@ def read_file(
 
     Supported formats:
     - .txt, .md, .json - Read directly from storage
-    - .pdf - Returns pre-extracted text from preprocessing
+    - .pdf - Returns extracted text (cached or extracted on-demand via Mistral OCR)
 
     For images, use analyze_images() instead.
 
@@ -361,6 +454,8 @@ def read_file(
         - path: Full path to the file
         - truncated: Boolean indicating if content was truncated
         - matches: Number of keyword matches (if keyword provided)
+        - extracted_images: List of paths to images extracted from PDFs
+          (only present for PDFs that contain images)
     """
     session_id = get_session_context()
     if not session_id:
@@ -378,20 +473,36 @@ def read_file(
             "message": f"Unsupported file type '{ext}'. Supported: .txt, .md, .json, .pdf. For images, use analyze_images() instead.",
         }
 
-    # Handle PDFs - get extracted_text from attachments table
+    # Handle PDFs - get extracted_text from attachments table, or extract on-demand
+    extracted_images = []  # Will contain resolved paths for agent
     if ext == ".pdf":
         try:
             attachments = query("attachments", pl.col("storage_path") == path)
             if attachments and len(attachments) > 0:
                 attachment = attachments[0]
                 extracted_text = attachment.get("extracted_text")
+
                 if extracted_text:
+                    # Already extracted - return cached text
                     text = extracted_text
+                    # Resolve extracted image IDs to paths
+                    image_ids = attachment.get("extracted_metadata", [])
+                    if image_ids:
+                        image_attachments = query("attachments", pl.col("id").is_in(image_ids))
+                        extracted_images = [img["storage_path"] for img in image_attachments]
                 else:
-                    return {
-                        "status": "error",
-                        "message": "PDF text not yet extracted. Please wait for preprocessing to complete.",
-                    }
+                    # Not yet extracted - do it now (lazy extraction)
+                    email_id = attachment.get("email_id", "")
+                    result = _extract_pdf_on_demand(path, session_id, email_id)
+
+                    if "error" in result:
+                        return {
+                            "status": "error",
+                            "message": result["error"],
+                        }
+
+                    text = result["text"]
+                    extracted_images = result.get("image_paths", [])
             else:
                 return {
                     "status": "error",
@@ -400,7 +511,7 @@ def read_file(
         except Exception as e:
             return {
                 "status": "error",
-                "message": f"Failed to read PDF extracted text: {e}",
+                "message": f"Failed to read PDF: {e}",
             }
     else:
         # Handle text files (.txt, .md, .json) - read from storage
@@ -455,23 +566,35 @@ def read_file(
         if truncated:
             text = text[:max_chars] + "\n... [truncated]"
 
-        return {
+        result = {
             "text": text,
             "path": path,
             "truncated": truncated,
             "matches": match_count,
         }
 
+        # Add extracted images if this was a PDF
+        if ext == ".pdf" and extracted_images:
+            result["extracted_images"] = extracted_images
+
+        return result
+
     # No keyword - return full content (possibly truncated)
     truncated = len(text) > max_chars
     if truncated:
         text = text[:max_chars] + "\n... [truncated]"
 
-    return {
+    result = {
         "text": text,
         "path": path,
         "truncated": truncated,
     }
+
+    # Add extracted images if this was a PDF
+    if ext == ".pdf" and extracted_images:
+        result["extracted_images"] = extracted_images
+
+    return result
 
 
 @function_tool

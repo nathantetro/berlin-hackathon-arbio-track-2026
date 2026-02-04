@@ -1,6 +1,6 @@
-"""Azure Blob Storage service for Arbie file system.
+"""AWS S3 storage service for Arbie file system.
 
-Provides a virtual file system abstraction over Azure Blob Storage.
+Provides a virtual file system abstraction over AWS S3.
 Replaces the non-existent tower.files API.
 
 Virtual path structure:
@@ -18,22 +18,14 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import BinaryIO
 
-from azure.identity import ClientSecretCredential, DefaultAzureCredential
-from azure.storage.blob import (
-    BlobServiceClient,
-    ContainerClient,
-    ContentSettings,
-    BlobSasPermissions,
-    UserDelegationKey,
-    generate_blob_sas,
-)
-from azure.storage.blob.aio import BlobServiceClient as AsyncBlobServiceClient
-from azure.core.exceptions import ResourceNotFoundError
+import boto3
+import aioboto3
+from botocore.exceptions import ClientError, NoCredentialsError
 
 
 # Configuration from environment
-STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "arbiefiles")
-CONTAINER_NAME = "arbie-files"
+S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME", "arbie-files")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 
 @dataclass
@@ -48,70 +40,57 @@ class FileInfo:
 
 
 class StorageService:
-    """Azure Blob Storage service with virtual path abstraction.
+    """AWS S3 storage service with virtual path abstraction.
 
     Provides a session-scoped file system where virtual paths like
-    /attachments/doc.pdf are translated to blob paths like
+    /attachments/doc.pdf are translated to S3 object keys like
     {session_id}/attachments/doc.pdf.
     """
 
-    def __init__(self, account_name: str = STORAGE_ACCOUNT_NAME):
+    def __init__(self, bucket_name: str = S3_BUCKET_NAME):
         """Initialize storage service.
 
         Args:
-            account_name: Azure Storage account name.
+            bucket_name: S3 bucket name.
         """
-        self.account_name = account_name
-        self.account_url = f"https://{account_name}.blob.core.windows.net"
-        self._client: BlobServiceClient | None = None
-        self._async_client: AsyncBlobServiceClient | None = None
-
-    def _get_credential(self):
-        """Get Azure credential for authentication.
-
-        Uses service principal if environment variables are set,
-        otherwise falls back to DefaultAzureCredential.
-        """
-        client_id = os.getenv("AZURE_CLIENT_ID")
-        client_secret = os.getenv("AZURE_CLIENT_SECRET")
-        tenant_id = os.getenv("AZURE_TENANT_ID")
-
-        if client_id and client_secret and tenant_id:
-            return ClientSecretCredential(
-                tenant_id=tenant_id,
-                client_id=client_id,
-                client_secret=client_secret,
-            )
-        return DefaultAzureCredential()
+        self.bucket_name = bucket_name
+        self._client = None  # boto3.client('s3')
+        self._async_session = None  # aioboto3.Session()
 
     @property
-    def client(self) -> BlobServiceClient:
-        """Get or create sync blob service client."""
+    def client(self):
+        """Get or create sync S3 client."""
         if self._client is None:
-            self._client = BlobServiceClient(
-                account_url=self.account_url,
-                credential=self._get_credential(),
-            )
+            # AWS SDK automatically uses credentials chain
+            self._client = boto3.client('s3', region_name=AWS_REGION)
+            # Ensure bucket exists
+            self._ensure_bucket_exists()
         return self._client
 
-    @property
-    def container(self) -> ContainerClient:
-        """Get container client, creating container if needed."""
-        container = self.client.get_container_client(CONTAINER_NAME)
+    def _ensure_bucket_exists(self):
+        """Create bucket if it doesn't exist."""
         try:
-            container.get_container_properties()
-        except ResourceNotFoundError:
-            container.create_container()
-        return container
+            self.client.head_bucket(Bucket=self.bucket_name)
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == '404':
+                # Bucket doesn't exist - create it
+                if AWS_REGION == 'us-east-1':
+                    # us-east-1 doesn't accept LocationConstraint
+                    self.client.create_bucket(Bucket=self.bucket_name)
+                else:
+                    self.client.create_bucket(
+                        Bucket=self.bucket_name,
+                        CreateBucketConfiguration={'LocationConstraint': AWS_REGION}
+                    )
+            else:
+                raise
 
-    async def _get_async_client(self) -> AsyncBlobServiceClient:
-        """Get or create async blob service client."""
-        if self._async_client is None:
-            self._async_client = AsyncBlobServiceClient(
-                account_url=self.account_url,
-                credential=self._get_credential(),
-            )
-        return self._async_client
+    async def _get_async_session(self):
+        """Get or create async aioboto3 session."""
+        if self._async_session is None:
+            self._async_session = aioboto3.Session()
+        return self._async_session
 
     def _virtual_to_blob_path(self, virtual_path: str, session_id: str) -> str:
         """Translate virtual path to blob path.
@@ -166,14 +145,14 @@ class StorageService:
         Raises:
             FileNotFoundError: If file doesn't exist
         """
-        blob_path = self._virtual_to_blob_path(virtual_path, session_id)
-        blob_client = self.container.get_blob_client(blob_path)
-
+        object_key = self._virtual_to_blob_path(virtual_path, session_id)
         try:
-            download = blob_client.download_blob()
-            return download.readall()
-        except ResourceNotFoundError:
-            raise FileNotFoundError(f"File not found: {virtual_path}")
+            response = self.client.get_object(Bucket=self.bucket_name, Key=object_key)
+            return response['Body'].read()
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                raise FileNotFoundError(f"File not found: {virtual_path}")
+            raise
 
     def read_text(self, virtual_path: str, session_id: str, encoding: str = "utf-8") -> str:
         """Read file content as text.
@@ -207,8 +186,7 @@ class StorageService:
         Returns:
             Number of bytes written
         """
-        blob_path = self._virtual_to_blob_path(virtual_path, session_id)
-        blob_client = self.container.get_blob_client(blob_path)
+        object_key = self._virtual_to_blob_path(virtual_path, session_id)
 
         # Convert string to bytes
         if isinstance(content, str):
@@ -222,10 +200,15 @@ class StorageService:
         else:
             data = content
 
-        blob_client.upload_blob(
-            data,
-            overwrite=True,
-            content_settings=ContentSettings(content_type=content_type) if content_type else None,
+        extra_args = {}
+        if content_type:
+            extra_args['ContentType'] = content_type
+
+        self.client.put_object(
+            Bucket=self.bucket_name,
+            Key=object_key,
+            Body=data,
+            **extra_args
         )
 
         return len(data) if isinstance(data, (bytes, str)) else 0
@@ -248,7 +231,7 @@ class StorageService:
         Returns:
             Number of bytes written
         """
-        blob_path = self._virtual_to_blob_path(virtual_path, session_id)
+        object_key = self._virtual_to_blob_path(virtual_path, session_id)
 
         # Convert string to bytes
         if isinstance(content, str):
@@ -256,21 +239,18 @@ class StorageService:
             if content_type is None:
                 content_type = "text/plain; charset=utf-8"
 
-        async_client = await self._get_async_client()
-        container = async_client.get_container_client(CONTAINER_NAME)
+        extra_args = {}
+        if content_type:
+            extra_args['ContentType'] = content_type
 
-        # Ensure container exists
-        try:
-            await container.get_container_properties()
-        except ResourceNotFoundError:
-            await container.create_container()
-
-        blob_client = container.get_blob_client(blob_path)
-        await blob_client.upload_blob(
-            content,
-            overwrite=True,
-            content_settings=ContentSettings(content_type=content_type) if content_type else None,
-        )
+        session = await self._get_async_session()
+        async with session.client('s3', region_name=AWS_REGION) as s3:
+            await s3.put_object(
+                Bucket=self.bucket_name,
+                Key=object_key,
+                Body=content,
+                **extra_args
+            )
 
         return len(content)
 
@@ -287,17 +267,18 @@ class StorageService:
         Raises:
             FileNotFoundError: If file doesn't exist
         """
-        blob_path = self._virtual_to_blob_path(virtual_path, session_id)
+        object_key = self._virtual_to_blob_path(virtual_path, session_id)
 
-        async_client = await self._get_async_client()
-        container = async_client.get_container_client(CONTAINER_NAME)
-        blob_client = container.get_blob_client(blob_path)
-
-        try:
-            download = await blob_client.download_blob()
-            return await download.readall()
-        except ResourceNotFoundError:
-            raise FileNotFoundError(f"File not found: {virtual_path}")
+        session = await self._get_async_session()
+        async with session.client('s3', region_name=AWS_REGION) as s3:
+            try:
+                response = await s3.get_object(Bucket=self.bucket_name, Key=object_key)
+                async with response['Body'] as stream:
+                    return await stream.read()
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'NoSuchKey':
+                    raise FileNotFoundError(f"File not found: {virtual_path}")
+                raise
 
     def list_files(
         self,
@@ -328,48 +309,53 @@ class StorageService:
         results = []
         seen_dirs = set()
 
-        for blob in self.container.list_blobs(name_starts_with=prefix):
-            # Get relative path from the prefix
-            rel_path = blob.name[len(prefix) :]
+        # S3 pagination
+        paginator = self.client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
 
-            if not recursive:
-                # For non-recursive, only show immediate children
-                if "/" in rel_path:
-                    # This is in a subdirectory - show the directory
-                    dir_name = rel_path.split("/")[0]
-                    if dir_name not in seen_dirs:
-                        seen_dirs.add(dir_name)
+        for page in pages:
+            for obj in page.get('Contents', []):
+                # Get relative path from the prefix
+                rel_path = obj['Key'][len(prefix):]
+
+                if not recursive:
+                    # For non-recursive, only show immediate children
+                    if "/" in rel_path:
+                        # This is in a subdirectory - show the directory
+                        dir_name = rel_path.split("/")[0]
+                        if dir_name not in seen_dirs:
+                            seen_dirs.add(dir_name)
+                            results.append(
+                                FileInfo(
+                                    name=dir_name,
+                                    path=f"/{path}{dir_name}/",
+                                    size=0,
+                                    modified=datetime.now(),
+                                    content_type="directory",
+                                )
+                            )
+                    else:
+                        # Immediate file
                         results.append(
                             FileInfo(
-                                name=dir_name,
-                                path=f"/{path}{dir_name}/",
-                                size=0,
-                                modified=datetime.now(),
-                                content_type="directory",
+                                name=rel_path,
+                                path=f"/{path}{rel_path}",
+                                size=obj['Size'],
+                                modified=obj['LastModified'],
+                                content_type=obj.get('ContentType'),
                             )
                         )
                 else:
-                    # Immediate file
+                    # Recursive - show all files
                     results.append(
                         FileInfo(
-                            name=rel_path,
-                            path=f"/{path}{rel_path}",
-                            size=blob.size,
-                            modified=blob.last_modified,
-                            content_type=blob.content_settings.content_type,
+                            name=obj['Key'].split("/")[-1],
+                            path=self._blob_to_virtual_path(obj['Key'], session_id),
+                            size=obj['Size'],
+                            modified=obj['LastModified'],
+                            content_type=obj.get('ContentType'),
                         )
                     )
-            else:
-                # Recursive - show all files
-                results.append(
-                    FileInfo(
-                        name=blob.name.split("/")[-1],
-                        path=self._blob_to_virtual_path(blob.name, session_id),
-                        size=blob.size,
-                        modified=blob.last_modified,
-                        content_type=blob.content_settings.content_type,
-                    )
-                )
 
         return results
 
@@ -383,9 +369,14 @@ class StorageService:
         Returns:
             True if file exists
         """
-        blob_path = self._virtual_to_blob_path(virtual_path, session_id)
-        blob_client = self.container.get_blob_client(blob_path)
-        return blob_client.exists()
+        object_key = self._virtual_to_blob_path(virtual_path, session_id)
+        try:
+            self.client.head_object(Bucket=self.bucket_name, Key=object_key)
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                return False
+            raise
 
     def delete(self, virtual_path: str, session_id: str) -> bool:
         """Delete a file.
@@ -397,14 +388,14 @@ class StorageService:
         Returns:
             True if file was deleted, False if it didn't exist
         """
-        blob_path = self._virtual_to_blob_path(virtual_path, session_id)
-        blob_client = self.container.get_blob_client(blob_path)
-
+        object_key = self._virtual_to_blob_path(virtual_path, session_id)
         try:
-            blob_client.delete_blob()
+            self.client.delete_object(Bucket=self.bucket_name, Key=object_key)
             return True
-        except ResourceNotFoundError:
-            return False
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return False
+            raise
 
     def get_file_info(self, virtual_path: str, session_id: str) -> FileInfo:
         """Get metadata about a file.
@@ -419,94 +410,67 @@ class StorageService:
         Raises:
             FileNotFoundError: If file doesn't exist
         """
-        blob_path = self._virtual_to_blob_path(virtual_path, session_id)
-        blob_client = self.container.get_blob_client(blob_path)
-
+        object_key = self._virtual_to_blob_path(virtual_path, session_id)
         try:
-            props = blob_client.get_blob_properties()
+            response = self.client.head_object(Bucket=self.bucket_name, Key=object_key)
             return FileInfo(
-                name=blob_path.split("/")[-1],
+                name=object_key.split("/")[-1],
                 path=virtual_path,
-                size=props.size,
-                modified=props.last_modified,
-                content_type=props.content_settings.content_type,
+                size=response['ContentLength'],
+                modified=response['LastModified'],
+                content_type=response.get('ContentType'),
             )
-        except ResourceNotFoundError:
-            raise FileNotFoundError(f"File not found: {virtual_path}")
-
-    def _get_user_delegation_key(self, expires_in: timedelta) -> UserDelegationKey:
-        """Get a user delegation key for signing SAS tokens.
-
-        Args:
-            expires_in: How long the key should be valid for.
-
-        Returns:
-            UserDelegationKey for signing SAS tokens.
-        """
-        key_start_time = datetime.utcnow()
-        key_expiry_time = key_start_time + expires_in
-
-        return self.client.get_user_delegation_key(
-            key_start_time=key_start_time,
-            key_expiry_time=key_expiry_time,
-        )
+        except ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                raise FileNotFoundError(f"File not found: {virtual_path}")
+            raise
 
     def get_signed_url(
         self,
         virtual_path: str,
         session_id: str,
         expires_in: timedelta = timedelta(hours=1),
-        permissions: BlobSasPermissions | None = None,
+        permissions = None,
     ) -> str:
-        """Generate a signed URL for public access to a file.
+        """Generate a presigned URL for public access to a file.
 
         Args:
             virtual_path: Virtual path to the file.
             session_id: Session ID for scoping.
             expires_in: How long the URL should be valid (default: 1 hour).
-            permissions: SAS permissions (default: read-only).
+            permissions: Ignored for S3 (always read-only).
 
         Returns:
-            Signed URL that provides public access to the file.
+            Presigned URL that provides public access to the file.
 
         Raises:
             FileNotFoundError: If file doesn't exist.
         """
-        blob_path = self._virtual_to_blob_path(virtual_path, session_id)
-        blob_client = self.container.get_blob_client(blob_path)
+        object_key = self._virtual_to_blob_path(virtual_path, session_id)
 
         # Verify file exists
-        if not blob_client.exists():
+        if not self.exists(virtual_path, session_id):
             raise FileNotFoundError(f"File not found: {virtual_path}")
 
-        # Default to read-only permissions
-        if permissions is None:
-            permissions = BlobSasPermissions(read=True)
+        # Generate presigned URL
+        expires_seconds = int(expires_in.total_seconds())
 
-        # Get user delegation key
-        user_delegation_key = self._get_user_delegation_key(expires_in)
-
-        # Generate SAS token
-        start_time = datetime.utcnow()
-        expiry_time = start_time + expires_in
-
-        sas_token = generate_blob_sas(
-            account_name=self.account_name,
-            container_name=CONTAINER_NAME,
-            blob_name=blob_path,
-            user_delegation_key=user_delegation_key,
-            permission=permissions,
-            expiry=expiry_time,
-            start=start_time,
+        url = self.client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': self.bucket_name,
+                'Key': object_key
+            },
+            ExpiresIn=expires_seconds
         )
 
-        return f"{blob_client.url}?{sas_token}"
+        return url
 
     async def close(self):
         """Close async client connections."""
-        if self._async_client:
-            await self._async_client.close()
-            self._async_client = None
+        if self._async_session:
+            await self._async_session.close()
+            self._async_session = None
 
 
 # Singleton instance
