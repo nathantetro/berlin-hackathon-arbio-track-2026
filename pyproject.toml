@@ -31,4 +31,5 @@ dependencies = [
     # Tracing
     "keywordsai-sdk>=0.4.39",
     "pillow-heif>=0.21.0",
+    "tenacity>=8.2.0",
 ]

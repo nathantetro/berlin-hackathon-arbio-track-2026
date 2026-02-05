@@ -38,22 +38,32 @@ for att in overview["files"]["attachments"]:
             analyze_images(paths=[att["path"]], prompt="Describe this room")
 ```
 
-### Step 3: Use Room Groupings (if available)
+### Step 3: Process Images
 
-When images are processed, they're grouped by room type in the `rooms` field:
+When you have images, classify and analyze them:
 
 ```python
-# Get bedroom images and detected objects
-bedrooms = overview["rooms"].get("bedroom", {})
-bedroom_images = bedrooms.get("images", [])
-bedroom_objects = bedrooms.get("objects", [])  # e.g., ["bed", "nightstand", "wardrobe"]
+# First, classify all images
+classification = classify_image_types(paths=overview["images"])
 
-# Use for room analysis
-if bedroom_images:
-    analyze_images(paths=bedroom_images, prompt="Count beds and list types")
+# Analyze property photos (auto-saves rooms to DB)
+if classification["property_foto_paths"]:
+    result = analyze_property_fotos(
+        paths=classification["property_foto_paths"],
+        save_to_db=True
+    )
+    # Now room records exist, photos are assigned to rooms
+
+    for room in result["rooms"]:
+        print(f"Found {room['room_type']}: {room['name']}")
+        print(f"  Objects: {room['objects']}")
+
+# Analyze document images (floor plans, contracts)
+if classification["document_foto_paths"]:
+    doc_info = analyze_document_images(paths=classification["document_foto_paths"])
 ```
 
-**Tip:** A generated `room_metadata.json` file may be available in `/attachments/` containing room counts and types. Check for this file to get structured room information.
+**Tip:** Room groupings from preprocessing may be available in `overview["rooms"]` for quick reference.
 
 ### Step 4: Check Email Context
 
@@ -68,24 +78,33 @@ Read documents in priority order:
 
 1. **Property guides or welcome documents first** (most comprehensive info)
    ```python
-   content = read_file("attachments/email_001/property_guide.pdf")
+   content = read_file("/attachments/property_guide.pdf")
+   # For PDFs: first read triggers Mistral OCR
+   # Returns extracted text + extracted_images list
+
+   # Check for images extracted from the PDF
+   if content.get("extracted_images"):
+       # Classify and analyze extracted images
+       classification = classify_image_types(paths=content["extracted_images"])
+       if classification["document_foto_paths"]:
+           doc_info = analyze_document_images(paths=classification["document_foto_paths"])
    ```
 
 2. **Floor plans** (spatial layout understanding)
    ```python
-   content = read_file("attachments/email_001/floor_plan.pdf")
+   content = read_file("/attachments/floor_plan.pdf")
    ```
 
 3. **Legal documents** (compliance info)
    ```python
-   content = read_file("attachments/email_001/permit.pdf", keyword="permit")
+   content = read_file("/attachments/permit.pdf", keyword="permit")
    ```
 
 **Use keyword search for targeted extraction:**
 ```python
 # Don't read entire 50-page document
 wifi_info = read_file(
-    "attachments/email_001/property_guide.pdf",
+    "/attachments/property_guide.pdf",
     keyword="wifi",
     context_lines=2
 )
@@ -97,69 +116,73 @@ wifi_info = read_file(
 
 ### Core Fields
 ```python
-# Address
+# Set multiple hard attributes at once with evidence
 edit_property(
-    key="address_line1",
-    value="123 Beach Drive",
-    evidence=Evidence(
-        type="document",
-        path="attachments/email_001/property_guide.pdf",
-        page_number=1,
-        text_snippet="Property Address: 123 Beach Drive",
-        confidence=0.95
+    address_line1="123 Beach Drive",
+    city="Miami Beach",
+    state_province="FL",
+    postal_code="33139",
+    country="USA",
+    max_guests=8,
+    bedrooms=3,
+    bathrooms=2.5,
+    evidence=EvidenceData(
+        source_type="document",
+        source_path="/attachments/property_guide.pdf",
+        excerpt="Property Address: 123 Beach Drive",
+        confidence="high"
     )
 )
-
-# Capacity
-edit_property(key="max_guests", value=8)
-edit_property(key="bedrooms", value=3)
-edit_property(key="bathrooms", value=2.5)
 ```
 
 ### Flexible Attributes
 ```python
 # Amenities and access details
 edit_property(
-    key="attr:wifi_password",
-    value="BeachLife2024!",
-    evidence=Evidence(
-        type="document",
-        path="attachments/email_001/property_guide.pdf",
-        page_number=2,
-        text_snippet="WiFi Password: BeachLife2024!",
-        confidence=0.99
+    attribute_key="wifi_password",
+    attribute_value="BeachLife2024!",
+    attribute_category="access",
+    evidence=EvidenceData(
+        source_type="document",
+        source_path="/attachments/property_guide.pdf",
+        excerpt="WiFi Password: BeachLife2024!",
+        confidence="high"
     )
 )
 
-edit_property(key="attr:pool", value=True)
-edit_property(key="attr:checkout_time", value="11:00 AM")
+edit_property(attribute_key="pool", attribute_value=True, attribute_category="amenity")
+edit_property(attribute_key="checkout_time", attribute_value="11:00 AM", attribute_category="rule")
 ```
 
 ### Rooms and Photos
 
-**Analyze images to understand rooms:**
+**Use vision tools to analyze and create rooms:**
 ```python
-# Count beds across bedroom photos
-bed_analysis = analyze_images(
-    paths=overview["rooms"]["bedroom"]["images"],
-    prompt="How many beds total? List each with type (king/queen/twin/sofa bed)."
-)
+# Classify and analyze property photos (creates rooms in DB)
+classification = classify_image_types(paths=overview["images"])
+if classification["property_foto_paths"]:
+    room_result = analyze_property_fotos(
+        paths=classification["property_foto_paths"],
+        save_to_db=True
+    )
+    # Rooms are automatically created with detected objects
 
-# Create room
-result = edit_property(key="room:new", value="bedroom")
+# Manually create/update a room if needed
+result = edit_room(
+    room_type="bedroom",
+    name="Master Bedroom",
+    bed_count=1,
+    bed_types=["king"],
+    amenities=["TV", "air_conditioning", "ensuite"]
+)
 room_id = result["room_id"]
 
-# Configure room
-edit_property(key=f"room:{room_id}:name", value="Master Bedroom")
-edit_property(key=f"room:{room_id}:bed_count", value=1)
-edit_property(key=f"room:{room_id}:bed_types", value=["king"])
-edit_property(key=f"room:{room_id}:is_ensuite", value=True)
-
-# Assign photos
-edit_property(key="photo:photo_001:room_id", value=room_id)
-edit_property(
-    key="photo:photo_001:description",
-    value="Master bedroom with king bed and ocean view"
+# Assign photo to room
+edit_photo(
+    photo_id="photo_001",
+    room_id=room_id,
+    is_room_primary=True,
+    description="Master bedroom with king bed and ocean view"
 )
 ```
 
@@ -372,27 +395,46 @@ Arbie""",
 overview = get_session_overview()
 emails = fetch_emails(direction="inbound", limit=1)
 
-# ASSESS
-guide = read_file("attachments/email_001/property_guide.pdf")
-floor_plan = read_file("attachments/email_001/floor_plan.pdf")
+# ASSESS - Read PDFs (triggers OCR)
+guide = read_file("/attachments/property_guide.pdf")
+extracted_images = guide.get("extracted_images", [])
+floor_plan = read_file("/attachments/floor_plan.pdf")
 
-# EXTRACT
-edit_property(key="address_line1", value="123 Beach Drive", evidence=...)
-edit_property(key="max_guests", value=8)
-# ... (all extracted data)
+# Classify all images (email attachments + PDF-extracted)
+all_images = overview["images"] + extracted_images
+classification = classify_image_types(paths=all_images)
 
-bed_count = analyze_images(
-    paths=overview["rooms"]["bedroom"]["images"],
-    prompt="Count beds and list types"
+# Analyze property photos (creates rooms in DB)
+if classification["property_foto_paths"]:
+    room_result = analyze_property_fotos(
+        paths=classification["property_foto_paths"],
+        save_to_db=True
+    )
+
+# Analyze document photos
+if classification["document_foto_paths"]:
+    doc_info = analyze_document_images(paths=classification["document_foto_paths"])
+
+# EXTRACT - Store data with evidence
+edit_property(
+    address_line1="123 Beach Drive",
+    city="Miami",
+    max_guests=8,
+    bedrooms=3,
+    bathrooms=2.5,
+    evidence=EvidenceData(
+        source_type="document",
+        source_path="/attachments/property_guide.pdf",
+        excerpt="Property at 123 Beach Drive, sleeps 8"
+    )
 )
-# Create rooms and assign photos ...
 
 # IDENTIFY
 property = get_property()
 # Check: Have wifi_password but not wifi_network
 # Check: Have pool but not pool_heated
 
-# COMMUNICATE 
+# COMMUNICATE
 update_session(status="awaiting_info", status_reason="...")
 send_email(
     to="owner@example.com",

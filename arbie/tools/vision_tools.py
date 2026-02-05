@@ -11,7 +11,7 @@ from typing import Any
 from agents import function_tool
 
 from arbie.services.storage import get_storage_service
-from arbie.services.openai_client import get_openai_client
+from arbie.services.openai_client import get_openai_client, chat_completion_with_backoff
 from arbie.services.db.rooms import (
     create_room_records_from_vision,
     update_attachments_with_room_names,
@@ -142,9 +142,10 @@ def analyze_images_impl(
     if loaded_images == 0:
         return f"Error: Could not load any images. Errors: {'; '.join(errors)}"
 
-    # Call OpenAI Vision API
+    # Call OpenAI Vision API with exponential backoff
     try:
-        response = client.chat.completions.create(
+        response = chat_completion_with_backoff(
+            client,
             model="gpt-4o",  # Vision-capable model
             messages=[
                 {
@@ -292,9 +293,10 @@ def classify_image_types_impl(
     if not loaded_indices:
         return {"error": f"Could not load any images: {'; '.join(errors)}"}
 
-    # Call OpenAI Vision API with structured output
+    # Call OpenAI Vision API with structured output and exponential backoff
     try:
-        response = client.chat.completions.create(
+        response = chat_completion_with_backoff(
+            client,
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
             max_tokens=2048,
@@ -416,9 +418,10 @@ def analyze_property_fotos_impl(
     if not loaded_indices:
         return {"rooms": [], "room_ids": []}
 
-    # Call OpenAI Vision API with system + user messages
+    # Call OpenAI Vision API with system + user messages and exponential backoff
     try:
-        response = client.chat.completions.create(
+        response = chat_completion_with_backoff(
+            client,
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": PROPERTY_PHOTO_ANALYZER_PROMPT},
@@ -579,9 +582,10 @@ def analyze_document_images_impl(
     if not loaded_indices:
         return f"Error: Could not load any images. Errors: {'; '.join(errors)}"
 
-    # Call OpenAI Vision API with system + user messages
+    # Call OpenAI Vision API with system + user messages and exponential backoff
     try:
-        response = client.chat.completions.create(
+        response = chat_completion_with_backoff(
+            client,
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": DOCUMENT_IMAGE_ANALYZER_PROMPT},

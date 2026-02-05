@@ -203,30 +203,48 @@ list_files("workspace", recursive=True)
 **Purpose:** Read content from text-based files
 
 **Supported formats:**
-- `.txt`, `.md`, `.json` - Read directly
-- `.pdf` - Returns pre-extracted text from preprocessing
+- `.txt`, `.md`, `.json` - Read directly from storage
+- `.pdf` - **On-demand Mistral OCR** (see below)
 
-**For images, use `analyze_images()` instead.**
+**PDF behavior:**
+- First read triggers `mistral-ocr-latest` OCR extraction
+- Extracted text cached in DB for subsequent reads
+- Images from PDF saved to `/extracted/{pdf_name}_{image}.jpg`
+- Returns `extracted_images` list with paths to extracted images
+
+**For images, use vision tools instead (see Vision Tools section).**
 
 **Key features:**
 - Keyword search with context lines
 - Truncates long content (max_chars)
+- Auto-extracts images from PDFs
 
 **Examples:**
 ```python
-# Read full document
-content = read_file("attachments/email_001/property_guide.pdf")
+# Read PDF (triggers OCR on first read)
+content = read_file("/attachments/property_guide.pdf")
+# Returns:
+# {
+#     "text": "Property at 123 Beach Drive...",
+#     "path": "/attachments/property_guide.pdf",
+#     "truncated": False,
+#     "extracted_images": ["/extracted/property_guide_page1.jpg", ...]
+# }
+
+# Then analyze the extracted images:
+if content.get("extracted_images"):
+    doc_analysis = analyze_document_images(paths=content["extracted_images"])
 
 # Search for specific info (don't read entire 50-page doc)
 wifi_info = read_file(
-    "attachments/email_001/property_guide.pdf",
+    "/attachments/property_guide.pdf",
     keyword="wifi",
     context_lines=2
 )
 # Returns only sections mentioning "wifi" with 2 lines before/after
 
 # Read your own notes
-notes = read_file("workspace/notes/missing_info.md")
+notes = read_file("/workspace/notes/missing_info.md")
 ```
 
 ### write_file(path, content, mode="overwrite")
@@ -264,111 +282,207 @@ write_file(
 
 ## Vision Tools
 
-### analyze_images(paths: list[str], prompt: str)
+There are three specialized vision tools. Use them in this order for image processing:
 
-**Purpose:** Send images to vision model with a specific question
+### classify_image_types(paths)
 
-**Examples:**
+**Purpose:** First step for image analysis - classify images as property photos or document photos
+
+**Model:** GPT-4o (detail: low - efficient for classification)
+
+**Returns:**
 ```python
-# Count beds across bedroom photos
-response = analyze_images(
-    paths=[
-        "attachments/email_001/bedroom1.jpg",
-        "attachments/email_001/bedroom2.jpg",
-        "extracted/guide_img_004.jpg"
+{
+    "property_foto_paths": ["/attachments/bedroom.jpg", ...],
+    "document_foto_paths": ["/attachments/floorplan.jpg", ...]
+}
+```
+
+**Example:**
+```python
+result = classify_image_types(paths=overview["images"])
+property_photos = result["property_foto_paths"]
+document_photos = result["document_foto_paths"]
+```
+
+---
+
+### analyze_property_fotos(paths, save_to_db=True, email_id="", property_id="")
+
+**Purpose:** Cluster property photos into rooms, detect objects, classify room types
+
+**Model:** GPT-4o (detail: high - detailed analysis)
+
+**Key behavior:**
+- `save_to_db=True` (default): Creates room records in DB + updates attachment metadata
+- Returns `room_ids` list ONLY when save_to_db=True
+- Clusters images showing the same room from different angles
+
+**Returns:**
+```python
+{
+    "rooms": [
+        {
+            "name": "bedroom1",
+            "room_type": "bedroom",
+            "objects": ["king bed", "nightstand", "wardrobe"],
+            "attachments": ["/attachments/bed1.jpg", "/attachments/bed2.jpg"]
+        },
+        ...
     ],
-    prompt="How many beds total? List each with type (king/queen/twin/sofa bed)."
-)
-# Returns: "I can see 4 beds total:
-#           1. Image 1: 1 king bed
-#           2. Image 2: 2 twin beds
-#           3. Image 3: 1 queen bed"
+    "room_ids": ["room-uuid-1", ...]  # Only when save_to_db=True
+}
+```
 
-# Check if two images show same room
-response = analyze_images(
-    paths=[
-        "extracted/guide_img_003.jpg",
-        "attachments/email_001/kitchen.jpg"
-    ],
-    prompt="Are these the same room? What details match?"
-)
+**Room types (24 canonical):**
+- Indoor: bedroom, bathroom, kitchen, living_room, dining_room, office, laundry, garage, hallway, closet, basement, attic
+- Outdoor: patio, balcony, deck, pool_area, garden, parking
+- Generic: exterior, common_area, other
 
-# Identify amenities in pool area
-response = analyze_images(
-    paths=["attachments/email_001/pool.jpg"],
-    prompt="What amenities are visible? List everything."
+**Example:**
+```python
+result = analyze_property_fotos(
+    paths=classification["property_foto_paths"],
+    save_to_db=True,
+    property_id=property_id
 )
+# Rooms created in DB, attachments updated with room assignments
+room_ids = result["room_ids"]
 
-# Check image quality
-response = analyze_images(
-    paths=["extracted/guide_img_007.jpg"],
-    prompt="Rate this image quality 1-10 for a property listing. Any issues?"
-)
+for room in result["rooms"]:
+    print(f"Found {room['room_type']}: {room['name']}")
+    print(f"  Objects: {', '.join(room['objects'])}")
+    print(f"  Images: {len(room['attachments'])}")
+```
+
+---
+
+### analyze_document_images(paths)
+
+**Purpose:** Extract information from document images (floor plans, contracts, certificates)
+
+**Model:** GPT-4o (detail: high - for reading text)
+
+**Returns:** TEXT (not JSON) - descriptive analysis including:
+- Document type
+- Key dates, names, measurements
+- Signatures, stamps
+- Layout/structure details
+
+**Example:**
+```python
+description = analyze_document_images(paths=["/attachments/floorplan.jpg"])
+# Returns: "Floor plan showing 2-bedroom layout. Master bedroom is 15x12 ft..."
 ```
 
 ## Property Tools
 
-### edit_property(key, value, evidence=None)
+### edit_property(...)
 
-**Purpose:** Create or update property fields (the primary tool for building property data)
+**Purpose:** Create or update property fields with evidence tracking
 
-**Key patterns:**
+**Parameters:**
+- Location: `address_line1`, `address_line2`, `city`, `state_province`, `postal_code`, `country`, `coordinates_lat`, `coordinates_lng`
+- Capacity: `max_guests`, `bedrooms`, `beds`, `bathrooms`
+- Type: `property_type`
+- Compliance: `permit_number`, `permit_expiry`, `tax_id`
+- Flexible: `attribute_key`, `attribute_value`, `attribute_category`
+- Evidence: `evidence` (optional)
 
-| Pattern | Example | Description |
-|---------|---------|-------------|
-| `{hard_attr}` | `address_line1`, `max_guests` | Core fields |
-| `attr:{key}` | `attr:wifi_password` | Flexible attributes |
-| `room:new` | `room:new` | Create room (value = room_type) |
-| `room:{id}:{field}` | `room:r123:name` | Update room field |
-| `photo:{id}:{field}` | `photo:p123:description` | Update photo metadata |
-| `photo:{id}:room_id` | `photo:p123:room_id` | Assign photo to room |
-| `compliance:{id}:{field}` | `compliance:c1:status` | Compliance fields |
+**Evidence parameter:**
+```python
+evidence=EvidenceData(
+    source_type="document",  # document, image, email, inference
+    source_path="/attachments/guide.pdf",
+    excerpt="Max occupancy: 8 guests",
+    confidence="high"  # high, medium, low
+)
+```
 
 **Examples:**
 ```python
-# Set address (creates property on first call)
+# Update multiple hard attributes at once
 edit_property(
-    key="address_line1",
-    value="123 Beach Drive",
-    evidence=Evidence(
-        type="document",
-        path="attachments/email_001/property_guide.pdf",
-        page_number=1,
-        text_snippet="Property Address: 123 Beach Drive",
-        confidence=0.95
+    address_line1="123 Beach Drive",
+    city="Miami",
+    country="USA",
+    max_guests=8,
+    bedrooms=3,
+    bathrooms=2.5,
+    evidence=EvidenceData(
+        source_type="document",
+        source_path="/attachments/property_guide.pdf",
+        excerpt="Property Address: 123 Beach Drive"
     )
 )
 
-# Set capacity
-edit_property(key="max_guests", value=8)
-edit_property(key="bedrooms", value=3)
-
-# Flexible attributes
+# Set a flexible attribute
 edit_property(
-    key="attr:wifi_password",
-    value="BeachLife2024!",
-    evidence=Evidence(
-        type="document",
-        path="attachments/email_001/property_guide.pdf",
-        page_number=2,
-        text_snippet="WiFi Password: BeachLife2024!"
-    )
+    attribute_key="wifi_password",
+    attribute_value="BeachLife2024!",
+    attribute_category="access"
 )
 
-# Create room
-result = edit_property(key="room:new", value="bedroom")
-room_id = result["room_id"]  # Returns "room_001"
+# Attribute categories: amenity, rule, access, appliance, contact, local, pricing, policy, other
+```
 
-# Update room details
-edit_property(key=f"room:{room_id}:name", value="Master Bedroom")
-edit_property(key=f"room:{room_id}:bed_count", value=1)
-edit_property(key=f"room:{room_id}:bed_types", value=["king"])
+---
 
-# Assign photo to room
-edit_property(key="photo:photo_001:room_id", value=room_id)
-edit_property(
-    key="photo:photo_001:description",
-    value="Master bedroom with king bed and ocean view"
+### edit_room(room_id=None, room_type=None, name=None, ...)
+
+**Purpose:** Create or update room records
+
+**Parameters:**
+- `room_id`: Omit to create new, provide to update existing
+- `room_type`: bedroom, bathroom, kitchen, etc. (required for new rooms)
+- `name`: Custom name (e.g., "Master Bedroom")
+- `floor`: Floor number (0 = ground)
+- `bed_count`, `bed_types`: For bedrooms
+- `has_shower`, `has_bathtub`, `is_ensuite`: For bathrooms
+- `amenities`: List of room amenities
+
+**Example:**
+```python
+# Create a new bedroom
+result = edit_room(
+    room_type="bedroom",
+    name="Master Bedroom",
+    bed_count=1,
+    bed_types=["king"],
+    amenities=["TV", "air_conditioning"]
+)
+room_id = result["room_id"]
+
+# Update an existing room
+edit_room(
+    room_id=room_id,
+    bed_count=2,
+    bed_types=["queen", "twin"]
+)
+```
+
+---
+
+### edit_photo(photo_id, room_id=None, is_primary=None, ...)
+
+**Purpose:** Assign photos to rooms and set metadata
+
+**Parameters:**
+- `photo_id`: ID of photo to update (required)
+- `room_id`: Assign to a room
+- `is_primary`: Main listing photo
+- `is_room_primary`: Main photo for that room
+- `display_order`: Gallery order (lower = earlier)
+- `description`: Text description
+- `tags`: List of tags
+
+**Example:**
+```python
+edit_photo(
+    photo_id="photo123",
+    room_id=room_id,
+    is_room_primary=True,
+    description="Master bedroom with king bed"
 )
 ```
 
@@ -527,42 +641,33 @@ update_session(
 )
 ```
 
-## Research Tool
-
-### research_compliance()
+## Research Agent (Handoff)
 
 **Purpose:** Research short-term rental regulations for a property address
 
-**How to use:** Call with the property address and specific research needs. Returns structured findings with source URLs that you can use with `edit_property()`.
+**How it works:** The Research Agent is accessed via **handoff** from Arbie. When compliance research is needed, control transfers to the Research Agent which has access to:
+- `web_search(query, max_results=5)` - Tavily web search
+- `todo(action, item)` - Track research tasks (add, complete, list, clear)
 
-**Parameters:**
-- `input`: Describe the property address and what compliance info you need
+**When to use:** After you have the property address and need to research:
+- Required permits and licenses
+- Registration requirements
+- Occupancy limits
+- Tax obligations
+- Zoning restrictions
 
-**Example:**
+**After the handoff:** The Research Agent returns findings. Use them to update property compliance:
 ```python
-# When you have property address and need compliance info:
-findings = research_compliance(
-    input="Research short-term rental regulations for 123 Beach Drive, "
-          "Miami Beach, FL 33139. Find required permits, registration, "
-          "occupancy limits, tax obligations, and registration deadlines."
-)
-
-# The tool returns structured findings like:
-# {
-#   "permits": {"required": true, "type": "STR License", "url": "..."},
-#   "taxes": {"rate": "13%", "collection": "platform remits", "url": "..."},
-#   ...
-# }
-
-# Use the findings to update property:
+# Use the research findings to update property
 edit_property(
-    key="compliance:comp_001:status",
-    value="compliant",
-    evidence=Evidence(
-        type="research",
-        url="https://www.miamibeachfl.gov/city-hall/str/"
+    permit_number="STR-2024-1234",
+    permit_expiry="2025-12-31",
+    evidence=EvidenceData(
+        source_type="inference",
+        excerpt="Miami Beach STR License required",
+        confidence="high"
     )
 )
 ```
 
-**Note:** This tool runs a specialized Research Agent that performs web searches and returns comprehensive compliance information. Control returns to you after the research is complete, so you can continue processing.
+**Note:** You don't call `research_compliance()` directly. The handoff happens automatically when you transfer to the Research Agent.

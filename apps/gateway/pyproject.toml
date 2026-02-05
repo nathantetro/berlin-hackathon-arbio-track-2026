@@ -28,4 +28,5 @@ dependencies = [
     "polars>=1.0.0",
     "pyarrow>=14.0.0",
     "mistralai>=1.0.0",
+    "tenacity>=8.2.0",
 ]

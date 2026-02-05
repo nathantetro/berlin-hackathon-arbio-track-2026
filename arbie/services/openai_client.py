@@ -7,7 +7,8 @@ pattern as StorageService and TavilyService.
 import os
 from dataclasses import dataclass
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError, APITimeoutError, APIConnectionError
+from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
 
 
 @dataclass
@@ -16,7 +17,7 @@ class OpenAIClientConfig:
 
     api_key: str | None = None
     timeout: float = 60.0
-    max_retries: int = 2
+    max_retries: int = 5
 
 
 # Singleton instance
@@ -57,3 +58,25 @@ def reset_openai_client() -> None:
     """
     global _openai_client
     _openai_client = None
+
+
+@retry(
+    wait=wait_random_exponential(min=1, max=60),
+    stop=stop_after_attempt(6),
+    retry=retry_if_exception_type((RateLimitError, APITimeoutError, APIConnectionError)),
+)
+def chat_completion_with_backoff(client: OpenAI, **kwargs):
+    """Chat completion with exponential backoff for rate limits.
+
+    Wraps client.chat.completions.create() with tenacity retry logic.
+    Retries on rate limit (429), timeout, and connection errors with
+    random exponential backoff (1-60 seconds, up to 6 attempts).
+
+    Args:
+        client: OpenAI client instance
+        **kwargs: Arguments passed to chat.completions.create()
+
+    Returns:
+        ChatCompletion response from OpenAI API
+    """
+    return client.chat.completions.create(**kwargs)

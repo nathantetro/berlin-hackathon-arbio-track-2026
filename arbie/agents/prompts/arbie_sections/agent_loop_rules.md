@@ -24,8 +24,8 @@ When you've extracted data but need clarification:
 
 ### Scenario 2: Research Required
 When you need compliance information:
-- Call `research_compliance()` with the property address and research needs
-- The tool returns structured findings with source URLs
+- Handoff to Research Agent for the property address
+- The Research Agent searches and returns findings
 - Use results to update the property (via `edit_property()`)
 - If no further questions needed, send completion email
 - The loop ends
@@ -79,36 +79,105 @@ update_session(
 send_email(...)  # Then terminate
 ```
 
+## Processing Flow: PDFs and Images
+
+When processing a new submission, follow this sequence:
+
+### Step 1: Read PDFs First (Triggers OCR)
+```python
+content = read_file("/attachments/property_guide.pdf")
+# This triggers Mistral OCR on first read
+# Returns text + extracted_images list
+extracted_images = content.get("extracted_images", [])
+```
+
+### Step 2: Classify All Images
+```python
+# Combine email attachments + PDF-extracted images
+all_images = overview["images"] + extracted_images
+
+classification = classify_image_types(paths=all_images)
+property_photos = classification["property_foto_paths"]
+document_photos = classification["document_foto_paths"]
+```
+
+### Step 3: Analyze Property Photos (Saves to DB)
+```python
+if property_photos:
+    result = analyze_property_fotos(
+        paths=property_photos,
+        save_to_db=True,
+        property_id=property_id  # if you have it
+    )
+    # Rooms created in DB, attachments updated with room assignments
+    room_ids = result["room_ids"]
+```
+
+### Step 4: Analyze Document Images
+```python
+if document_photos:
+    doc_info = analyze_document_images(paths=document_photos)
+    # Returns text description of floor plans, contracts, etc.
+```
+
+---
+
 ## Complete Turn Example
 
 ```python
 # 1. Get overview
 overview = get_session_overview()
 
-# 2. Read main document
-guide = read_file("attachments/email_001/property_guide.pdf")
+# 2. Read PDFs (triggers Mistral OCR)
+pdf_content = read_file("/attachments/property_guide.pdf")
+extracted_images = pdf_content.get("extracted_images", [])
 
-# 3. Extract data with evidence
-edit_property(key="address_line1", value="123 Beach Drive", evidence=...)
-edit_property(key="max_guests", value=8, evidence=...)
+# 3. Classify images
+all_images = overview["images"] + extracted_images
+classification = classify_image_types(paths=all_images)
 
-# 4. Identify gap: missing WiFi network name
+# 4. Analyze property photos (saves rooms to DB)
+if classification["property_foto_paths"]:
+    room_result = analyze_property_fotos(
+        paths=classification["property_foto_paths"],
+        save_to_db=True
+    )
+
+# 5. Analyze document photos
+if classification["document_foto_paths"]:
+    doc_info = analyze_document_images(
+        paths=classification["document_foto_paths"]
+    )
+
+# 6. Extract property data
+edit_property(
+    address_line1="123 Beach Drive",
+    city="Miami",
+    max_guests=8,
+    evidence=EvidenceData(
+        source_type="document",
+        source_path="/attachments/property_guide.pdf",
+        excerpt="Address: 123 Beach Drive"
+    )
+)
+
+# 7. Check for gaps
 property = get_property()
-# (check fields, see wifi_password exists but not wifi_network)
+# (identify missing info)
 
-# 5. Update status
+# 8. Update status
 update_session(
     status="awaiting_info",
     status_reason="Need WiFi network name"
 )
 
-# 6. TERMINATE with email
+# 9. TERMINATE with email
 send_email(
     to="owner@example.com",
     subject="Re: Property Submission - Quick question",
-    body="Hi,\n\nWhat's the WiFi network name? I found the password in your guide.\n\nCheers,\nArbie"
+    body="Hi,\n\nWhat's the WiFi network name?...\n\nCheers,\nArbie"
 )
-# Loop ends here 
+# Loop ends here
 ```
 
 ## REMEMBER: Email = Termination
@@ -131,9 +200,4 @@ Instead do the work first, then finish your turn with an email.
 - Email sent = Turn ends instantly
 - Update session status BEFORE sending email
 - Use past/present perfect tense in emails (never future tense)
-- Keep emails conversational and concise
-
-- One turn = One email sent
-- No email = Loop hangs
-- Update session status before sending email
 - Keep emails conversational and concise
